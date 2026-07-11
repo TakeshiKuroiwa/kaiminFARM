@@ -6,6 +6,7 @@ export type ResourceId = "wood" | "food" | "ore" | "dreamCotton";
 export type Resources = Record<ResourceId, number>;
 
 export type TownRank = "smallSettlement" | "slowVillage" | "fluffyTown";
+export type KaiminOutfit = "default" | "nightcap" | "festival";
 
 export type PlayerProfile = {
   playerId: PlayerId;
@@ -16,6 +17,7 @@ export type PlayerProfile = {
   lastCalculatedAt: UnixTimeMs;
   offlineLimitSeconds: number;
   isTownPublic: boolean;
+  kaiminOutfit: KaiminOutfit;
   createdAt: UnixTimeMs;
   updatedAt: UnixTimeMs;
 };
@@ -89,6 +91,33 @@ export type RankingEntry = {
   score: number;
 };
 
+export type PublicTownSnapshot = {
+  playerId: PlayerId;
+  displayName: string;
+  townName: string;
+  townRank: TownRank;
+  townLevel: number;
+  comfort: number;
+  likes: number;
+  snapshotAt: UnixTimeMs;
+  buildings: BuildingInstance[];
+  residents: Resident[];
+  townStats: TownStats;
+};
+
+export type SeasonalEvent = {
+  eventId: string;
+  title: string;
+  description: string;
+  rewardLabel: string;
+};
+
+export type OperationsStatus = {
+  status: "normal";
+  message: string;
+  updatedAt: UnixTimeMs;
+};
+
 export type OfflineReport = {
   elapsedSeconds: number;
   calculatedSeconds: number;
@@ -118,5 +147,7 @@ export type GameState = {
     personalContribution: number;
     ranking: RankingEntry[];
   };
+  seasonalEvent: SeasonalEvent;
+  operationsStatus: OperationsStatus;
   offlineReport: OfflineReport;
 };

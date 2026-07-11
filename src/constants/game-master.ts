@@ -1,4 +1,13 @@
-import type { BuildingType, Expedition, Resident, ResourceId, Resources, WorldEvent } from "@/types/game";
+import type {
+  BuildingType,
+  Expedition,
+  KaiminOutfit,
+  Resident,
+  ResourceId,
+  Resources,
+  SeasonalEvent,
+  WorldEvent
+} from "@/types/game";
 
 export const SESSION_COOKIE_NAME = "kaimin_session";
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -208,3 +217,27 @@ export const ACTIVE_WORLD_EVENT: Omit<WorldEvent, "currentAmount" | "startedAt" 
   goalAmount: 100000,
   durationDays: 14
 };
+
+export const KAIMIN_OUTFITS: Record<KaiminOutfit, { name: string; description: string }> = {
+  default: {
+    name: "いつものふわふわ",
+    description: "kaiminちゃんの普段着です。"
+  },
+  nightcap: {
+    name: "おやすみナイトキャップ",
+    description: "留守番日記を書くときに眠くなりにくい帽子です。"
+  },
+  festival: {
+    name: "収穫祭のケープ",
+    description: "世界イベントの広場によく似合う衣装です。"
+  }
+};
+
+export const ACTIVE_SEASONAL_EVENT: SeasonalEvent = {
+  eventId: "season_sleepy_summer_001",
+  title: "まどろみサマー",
+  description: "町に涼しい木陰を増やす季節です。公園や住宅を整えて、住民が休みやすい町にしましょう。",
+  rewardLabel: "限定フォトフレーム"
+};
+
+export const OPERATIONS_STATUS_MESSAGE = "現在、ねむり丘タウンは通常運営中です。";

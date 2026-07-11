@@ -27,6 +27,7 @@ export async function createInitialGameData({ playerId, displayName, townName, n
     lastCalculatedAt: now,
     offlineLimitSeconds: 60 * 60 * 8,
     isTownPublic: true,
+    kaiminOutfit: "default",
     createdAt: now,
     updatedAt: now
   };

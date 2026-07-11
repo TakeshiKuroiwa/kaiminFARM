@@ -142,6 +142,7 @@ export function calculateTownStats(buildings: BuildingInstance[]) {
     lastCalculatedAt: 0,
     offlineLimitSeconds: 0,
     isTownPublic: true,
+    kaiminOutfit: "default",
     createdAt: 0,
     updatedAt: 0
   });

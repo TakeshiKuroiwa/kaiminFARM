@@ -6,9 +6,19 @@ import {
   BUILDABLE_BUILDING_TYPES,
   BUILDING_MASTER,
   EXPEDITION_AREAS,
+  KAIMIN_OUTFITS,
   MAX_BUILDING_LEVEL
 } from "@/constants/game-master";
-import type { BuildingInstance, BuildingType, Expedition, GameState, Resident, Resources } from "@/types/game";
+import type {
+  BuildingInstance,
+  BuildingType,
+  Expedition,
+  GameState,
+  KaiminOutfit,
+  PublicTownSnapshot,
+  Resident,
+  Resources
+} from "@/types/game";
 
 type GameStateResult =
   | {
@@ -67,6 +77,20 @@ type WorldEventContributeResult =
       };
     };
 
+type TownVisitResult =
+  | {
+      ok: true;
+      data: {
+        town: PublicTownSnapshot;
+      };
+    }
+  | {
+      ok: false;
+      error: {
+        message: string;
+      };
+    };
+
 const buildingLabels: Record<string, string> = {
   townHall: "町",
   house: "家",
@@ -105,6 +129,8 @@ export function GameDashboard() {
   const [expeditionAreaId, setExpeditionAreaId] = useState<Expedition["areaId"]>("nearbyWoods");
   const [selectedResidentIds, setSelectedResidentIds] = useState<string[]>([]);
   const [eventAmount, setEventAmount] = useState(10);
+  const [visitTownId, setVisitTownId] = useState("");
+  const [visitedTown, setVisitedTown] = useState<PublicTownSnapshot | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -317,6 +343,48 @@ export function GameDashboard() {
     setActionMessage("世界イベントへ資源を納品しました。");
   }
 
+  async function changeKaiminOutfit(outfit: KaiminOutfit) {
+    setActionMessage("");
+    const response = await fetch("/api/player/preferences", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kaiminOutfit: outfit })
+    });
+    const result = (await response.json()) as GameStateResult;
+    if (!result.ok) {
+      setActionMessage(result.error.message);
+      return;
+    }
+    setState(result.data);
+    setActionMessage("kaiminちゃんの衣装を変更しました。");
+  }
+
+  async function visitTown() {
+    setActionMessage("");
+    setVisitedTown(null);
+    const response = await fetch(`/api/towns/${encodeURIComponent(visitTownId)}`, { cache: "no-store" });
+    const result = (await response.json()) as TownVisitResult;
+    if (!result.ok) {
+      setActionMessage(result.error.message);
+      return;
+    }
+    setVisitedTown(result.data.town);
+  }
+
+  async function sendGoodDream() {
+    if (!visitedTown) {
+      return;
+    }
+    const response = await fetch(`/api/towns/${encodeURIComponent(visitedTown.playerId)}/like`, { method: "POST" });
+    const result = (await response.json()) as TownVisitResult;
+    if (!result.ok) {
+      setActionMessage(result.error.message);
+      return;
+    }
+    setVisitedTown(result.data.town);
+    setActionMessage("いい夢を送りました。");
+  }
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/");
@@ -351,6 +419,7 @@ export function GameDashboard() {
             <p className="muted">
               {state.profile.displayName} / {rankLabels[state.profile.townRank]}
             </p>
+            <p className="muted small">公開町ID: {state.profile.playerId}</p>
           </div>
           <div className="row">
             <button className="secondary" onClick={refreshState}>
@@ -379,7 +448,27 @@ export function GameDashboard() {
               ? "留守のあいだの町の様子をまとめてくれました。"
               : "町役場のそばで、次の建設を待っています。"}
           </p>
+          <label>
+            衣装
+            <select value={state.profile.kaiminOutfit} onChange={(event) => changeKaiminOutfit(event.target.value as KaiminOutfit)}>
+              {Object.entries(KAIMIN_OUTFITS).map(([outfit, detail]) => (
+                <option key={outfit} value={outfit}>
+                  {detail.name}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
+      </section>
+      <section className="panel stack">
+        <h2>季節イベント</h2>
+        <strong>{state.seasonalEvent.title}</strong>
+        <p className="muted">{state.seasonalEvent.description}</p>
+        <p>報酬: {state.seasonalEvent.rewardLabel}</p>
+      </section>
+      <section className="panel stack">
+        <h2>運営ステータス</h2>
+        <p>{state.operationsStatus.message}</p>
       </section>
       <section className="panel stack">
         <h2>町の評価</h2>
@@ -413,6 +502,32 @@ export function GameDashboard() {
             </div>
           ))}
         </div>
+      </section>
+      <section className="panel stack">
+        <h2>町訪問</h2>
+        <div className="compact-form">
+          <label>
+            公開町ID
+            <input value={visitTownId} onChange={(event) => setVisitTownId(event.target.value)} />
+          </label>
+          <button type="button" onClick={visitTown}>
+            訪問
+          </button>
+        </div>
+        {visitedTown ? (
+          <article className="building-card">
+            <strong>{visitedTown.townName}</strong>
+            <p className="muted">
+              {visitedTown.displayName} / {rankLabels[visitedTown.townRank]} / いい夢 {visitedTown.likes}
+            </p>
+            <p className="small">
+              人口 {visitedTown.townStats.population} / ここちよさ {visitedTown.townStats.comfort} / 建物 {visitedTown.buildings.length}
+            </p>
+            <button className="secondary" type="button" onClick={sendGoodDream}>
+              いい夢を送る
+            </button>
+          </article>
+        ) : null}
       </section>
       <section className="panel stack">
         <h2>住民</h2>

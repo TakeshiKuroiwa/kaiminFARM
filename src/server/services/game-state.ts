@@ -1,4 +1,10 @@
-import { BUILDING_MASTER, EMPTY_RESOURCES, EXPEDITION_AREAS } from "@/constants/game-master";
+import {
+  ACTIVE_SEASONAL_EVENT,
+  BUILDING_MASTER,
+  EMPTY_RESOURCES,
+  EXPEDITION_AREAS,
+  OPERATIONS_STATUS_MESSAGE
+} from "@/constants/game-master";
 import type { GameState, Resources } from "@/types/game";
 import {
   getBuildings,
@@ -23,6 +29,7 @@ import {
   syncResidentsWithTown
 } from "./game-mechanics";
 import { getWorldEventState } from "./world-event-service";
+import { updatePublicTownSnapshot } from "./town-visit-service";
 
 export async function getSettledGameState(playerId: string): Promise<GameState | null> {
   const now = Date.now();
@@ -57,6 +64,7 @@ export async function getSettledGameState(playerId: string): Promise<GameState |
   const nextResources = addResources(resources, gainedResources);
   const nextProfile = {
     ...profile,
+    kaiminOutfit: profile.kaiminOutfit ?? "default",
     townRank: calculateTownRank(stats),
     offlineLimitSeconds: calculateOfflineLimitSeconds(completion.buildings),
     lastCalculatedAt: now,
@@ -88,6 +96,7 @@ export async function getSettledGameState(playerId: string): Promise<GameState |
     residentSync.residents.map((resident) => resident.name)
   );
   const worldEvent = await getWorldEventState(playerId);
+  await updatePublicTownSnapshot(playerId, stats);
 
   return {
     serverTime: now,
@@ -98,6 +107,12 @@ export async function getSettledGameState(playerId: string): Promise<GameState |
     expeditions: nextExpeditions,
     townStats: stats,
     worldEvent,
+    seasonalEvent: ACTIVE_SEASONAL_EVENT,
+    operationsStatus: {
+      status: "normal",
+      message: OPERATIONS_STATUS_MESSAGE,
+      updatedAt: now
+    },
     offlineReport: {
       elapsedSeconds,
       calculatedSeconds,

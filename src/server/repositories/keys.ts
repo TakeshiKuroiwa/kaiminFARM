@@ -11,6 +11,9 @@ export const keys = {
   residents: (playerId: PlayerId) => `player:${playerId}:residents`,
   expeditions: (playerId: PlayerId) => `player:${playerId}:expeditions`,
   publicTown: (playerId: PlayerId) => `town:public:${playerId}`,
+  publicTownLikes: (playerId: PlayerId) => `town:public:${playerId}:likes`,
+  publicTownLikeDaily: (targetPlayerId: PlayerId, viewerPlayerId: PlayerId, yyyymmdd: string) =>
+    `town:like:${targetPlayerId}:${viewerPlayerId}:${yyyymmdd}`,
   worldEvent: (eventId: string) => `world:event:${eventId}`,
   worldEventContribution: (eventId: string, playerId: PlayerId) => `world:event:${eventId}:player:${playerId}`,
   worldEventRanking: (eventId: string) => `ranking:event:${eventId}`,
