@@ -1,0 +1,171 @@
+:root {
+  color-scheme: light;
+  --background: #f7faf4;
+  --foreground: #253025;
+  --muted: #657063;
+  --panel: #ffffff;
+  --line: #dce5d8;
+  --accent: #3c7c5a;
+  --accent-strong: #285f43;
+  --warn: #9a5a1c;
+  --danger: #b73535;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.page {
+  width: min(960px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 32px 0;
+}
+
+.stack {
+  display: grid;
+  gap: 16px;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.nav {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.button,
+button {
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: white;
+  padding: 10px 14px;
+  text-decoration: none;
+  cursor: pointer;
+  min-height: 42px;
+}
+
+.button.secondary,
+button.secondary {
+  background: #e6eee2;
+  color: var(--foreground);
+}
+
+.button.danger,
+button.danger {
+  background: var(--danger);
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-weight: 700;
+}
+
+input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: white;
+}
+
+.form {
+  display: grid;
+  gap: 14px;
+  max-width: 520px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.success {
+  color: var(--accent-strong);
+  font-weight: 700;
+}
+
+.resource-grid,
+.map-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.resource-grid {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.resource {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  background: #fbfdf9;
+}
+
+.map-grid {
+  grid-template-columns: repeat(10, minmax(22px, 1fr));
+  aspect-ratio: 1 / 1;
+}
+
+.tile {
+  border: 1px solid #cdd9c7;
+  border-radius: 4px;
+  background: #eef5e9;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  font-size: 11px;
+  text-align: center;
+  padding: 2px;
+}
+
+.tile.occupied {
+  background: #dcebd2;
+  border-color: #8dae7b;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .page {
+    width: min(100% - 20px, 960px);
+    padding: 20px 0;
+  }
+
+  .panel {
+    padding: 14px;
+  }
+}
