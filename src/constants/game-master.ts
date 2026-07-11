@@ -1,4 +1,4 @@
-import type { BuildingType, Resident, Resources } from "@/types/game";
+import type { BuildingType, Expedition, Resident, ResourceId, Resources, WorldEvent } from "@/types/game";
 
 export const SESSION_COOKIE_NAME = "kaimin_session";
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -171,3 +171,40 @@ export const RESIDENT_MASTER: ResidentMaster[] = [
     ]
   }
 ];
+
+export type ExpeditionAreaMaster = {
+  areaId: Expedition["areaId"];
+  name: string;
+  durationSeconds: number;
+  foodCost: number;
+  rewards: Partial<Resources>;
+};
+
+export const EXPEDITION_AREAS: Record<Expedition["areaId"], ExpeditionAreaMaster> = {
+  nearbyWoods: {
+    areaId: "nearbyWoods",
+    name: "近くの林",
+    durationSeconds: 30 * 60,
+    foodCost: 10,
+    rewards: { wood: 80, food: 20 }
+  },
+  sleepyForest: {
+    areaId: "sleepyForest",
+    name: "まどろみの森",
+    durationSeconds: 2 * 60 * 60,
+    foodCost: 30,
+    rewards: { wood: 180, dreamCotton: 6 }
+  }
+};
+
+export const ACTIVE_WORLD_EVENT: Omit<WorldEvent, "currentAmount" | "startedAt" | "endsAt"> & {
+  durationDays: number;
+} = {
+  eventId: "event_harvest_001",
+  title: "ねむり丘収穫祭",
+  description: "みんなで食料を持ち寄って、ねむり丘の広場をにぎやかにしましょう。",
+  status: "active",
+  resourceId: "food" satisfies ResourceId,
+  goalAmount: 100000,
+  durationDays: 14
+};

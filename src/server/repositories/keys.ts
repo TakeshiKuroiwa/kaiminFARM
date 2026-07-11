@@ -11,5 +11,8 @@ export const keys = {
   residents: (playerId: PlayerId) => `player:${playerId}:residents`,
   expeditions: (playerId: PlayerId) => `player:${playerId}:expeditions`,
   publicTown: (playerId: PlayerId) => `town:public:${playerId}`,
+  worldEvent: (eventId: string) => `world:event:${eventId}`,
+  worldEventContribution: (eventId: string, playerId: PlayerId) => `world:event:${eventId}:player:${playerId}`,
+  worldEventRanking: (eventId: string) => `ranking:event:${eventId}`,
   idempotency: (playerId: PlayerId, requestId: string) => `idempotency:${playerId}:${requestId}`
 };

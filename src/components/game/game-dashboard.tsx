@@ -2,8 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BUILDABLE_BUILDING_TYPES, BUILDING_MASTER, MAX_BUILDING_LEVEL } from "@/constants/game-master";
-import type { BuildingInstance, BuildingType, GameState, Resident } from "@/types/game";
+import {
+  BUILDABLE_BUILDING_TYPES,
+  BUILDING_MASTER,
+  EXPEDITION_AREAS,
+  MAX_BUILDING_LEVEL
+} from "@/constants/game-master";
+import type { BuildingInstance, BuildingType, Expedition, GameState, Resident, Resources } from "@/types/game";
 
 type GameStateResult =
   | {
@@ -24,6 +29,35 @@ type TalkResult =
         resident: Resident;
         line: string;
         friendshipGained: number;
+      };
+    }
+  | {
+      ok: false;
+      error: {
+        message: string;
+      };
+    };
+
+type ClaimExpeditionResult =
+  | {
+      ok: true;
+      data: {
+        state: GameState | null;
+        rewards: Resources;
+      };
+    }
+  | {
+      ok: false;
+      error: {
+        message: string;
+      };
+    };
+
+type WorldEventContributeResult =
+  | {
+      ok: true;
+      data: {
+        state: GameState | null;
       };
     }
   | {
@@ -68,6 +102,9 @@ export function GameDashboard() {
   const [moveX, setMoveX] = useState(0);
   const [moveY, setMoveY] = useState(0);
   const [dialogue, setDialogue] = useState("");
+  const [expeditionAreaId, setExpeditionAreaId] = useState<Expedition["areaId"]>("nearbyWoods");
+  const [selectedResidentIds, setSelectedResidentIds] = useState<string[]>([]);
+  const [eventAmount, setEventAmount] = useState(10);
 
   useEffect(() => {
     let active = true;
@@ -213,6 +250,73 @@ export function GameDashboard() {
     setActionMessage(`${result.data.resident.name}となかよし度が${result.data.friendshipGained}上がりました。`);
   }
 
+  async function startExpedition() {
+    setActionMessage("");
+    const response = await fetch("/api/expeditions/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestId: crypto.randomUUID(),
+        areaId: expeditionAreaId,
+        memberIds: selectedResidentIds
+      })
+    });
+    const result = (await response.json()) as GameStateResult;
+    if (!result.ok) {
+      setActionMessage(result.error.message);
+      return;
+    }
+    setState(result.data);
+    setActionMessage("探索隊を派遣しました。");
+  }
+
+  async function claimExpedition(expedition: Expedition) {
+    setActionMessage("");
+    const response = await fetch("/api/expeditions/claim", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestId: crypto.randomUUID(),
+        expeditionId: expedition.expeditionId
+      })
+    });
+    const result = (await response.json()) as ClaimExpeditionResult;
+    if (!result.ok) {
+      setActionMessage(result.error.message);
+      return;
+    }
+    if (result.data.state) {
+      setState(result.data.state);
+    }
+    setActionMessage(`探索報酬を受け取りました。${formatReward(result.data.rewards)}`);
+  }
+
+  async function contributeToWorldEvent() {
+    if (!state) {
+      return;
+    }
+    setActionMessage("");
+    const response = await fetch("/api/world-event/contribute", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestId: crypto.randomUUID(),
+        eventId: state.worldEvent.event.eventId,
+        resourceId: state.worldEvent.event.resourceId,
+        amount: eventAmount
+      })
+    });
+    const result = (await response.json()) as WorldEventContributeResult;
+    if (!result.ok) {
+      setActionMessage(result.error.message);
+      return;
+    }
+    if (result.data.state) {
+      setState(result.data.state);
+    }
+    setActionMessage("世界イベントへ資源を納品しました。");
+  }
+
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/");
@@ -336,6 +440,91 @@ export function GameDashboard() {
         {dialogue ? <p className="dialogue">{dialogue}</p> : null}
       </section>
       <section className="panel stack">
+        <h2>探索</h2>
+        <div className="compact-form">
+          <label>
+            探索先
+            <select value={expeditionAreaId} onChange={(event) => setExpeditionAreaId(event.target.value as Expedition["areaId"])}>
+              {Object.values(EXPEDITION_AREAS).map((area) => (
+                <option key={area.areaId} value={area.areaId}>
+                  {area.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            派遣住民
+            <select
+              multiple
+              value={selectedResidentIds}
+              onChange={(event) => {
+                setSelectedResidentIds(Array.from(event.currentTarget.selectedOptions).map((option) => option.value));
+              }}
+            >
+              {state.residents.map((resident) => (
+                <option key={resident.residentId} value={resident.residentId} disabled={resident.status !== "idle"}>
+                  {resident.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" onClick={startExpedition}>
+            探索開始
+          </button>
+        </div>
+        <p className="muted small">
+          {EXPEDITION_AREAS[expeditionAreaId].name} / 食料{EXPEDITION_AREAS[expeditionAreaId].foodCost} /{" "}
+          {Math.floor(EXPEDITION_AREAS[expeditionAreaId].durationSeconds / 60)}分
+        </p>
+        <div className="building-grid">
+          {state.expeditions.map((expedition) => (
+            <article className="building-card" key={expedition.expeditionId}>
+              <strong>{EXPEDITION_AREAS[expedition.areaId].name}</strong>
+              <p className="muted small">
+                {expedition.status === "running" ? "探索中" : expedition.status === "claimable" ? "報酬受取可" : "受取済み"} / 帰還{" "}
+                {new Date(expedition.completeAt).toLocaleTimeString("ja-JP")}
+              </p>
+              <button className="secondary" disabled={expedition.status !== "claimable"} onClick={() => claimExpedition(expedition)}>
+                報酬受取
+              </button>
+            </article>
+          ))}
+        </div>
+      </section>
+      <section className="panel stack">
+        <h2>世界イベント</h2>
+        <div>
+          <strong>{state.worldEvent.event.title}</strong>
+          <p className="muted">{state.worldEvent.event.description}</p>
+          <p>
+            進捗 {state.worldEvent.event.currentAmount} / {state.worldEvent.event.goalAmount}
+          </p>
+          <p className="muted">自分の貢献量 {state.worldEvent.personalContribution}</p>
+        </div>
+        <div className="compact-form">
+          <label>
+            納品量
+            <input
+              type="number"
+              min={1}
+              max={100000}
+              value={eventAmount}
+              onChange={(event) => setEventAmount(Number(event.target.value))}
+            />
+          </label>
+          <button type="button" onClick={contributeToWorldEvent}>
+            {resourceLabel(state.worldEvent.event.resourceId)}を納品
+          </button>
+        </div>
+        <div className="building-grid">
+          {state.worldEvent.ranking.map((entry, index) => (
+            <div className="resource" key={entry.playerId}>
+              {index + 1}. {entry.playerId.slice(0, 16)} / {entry.score}
+            </div>
+          ))}
+        </div>
+      </section>
+      <section className="panel stack">
         <h2>建設</h2>
         <div className="compact-form">
           <label>
@@ -432,4 +621,19 @@ function formatCost(cost: Partial<Record<string, number>>) {
     return "なし";
   }
   return entries.map(([resourceId, amount]) => `${labels[resourceId]}${amount}`).join("、");
+}
+
+function resourceLabel(resourceId: string) {
+  const labels: Record<string, string> = {
+    wood: "木材",
+    food: "食料",
+    ore: "鉱石",
+    dreamCotton: "夢わた"
+  };
+  return labels[resourceId] ?? resourceId;
+}
+
+function formatReward(resources: Resources) {
+  const text = formatCost(resources);
+  return text === "なし" ? "" : ` ${text}`;
 }

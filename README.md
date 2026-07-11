@@ -10,7 +10,7 @@
 
 ## 現在の実装範囲
 
-基本設計書の開発フェーズ3相当まで実装済みです。
+基本設計書の開発フェーズ4相当まで実装済みです。
 
 - Next.js / React / TypeScript のアプリ基盤
 - アカウント登録
@@ -48,6 +48,15 @@
 - 隣接効果を含む町評価
 - ゲーム画面での町評価表示
 - ゲーム画面での住民会話
+- 探索先2種類
+- 探索隊の派遣
+- 探索完了状態の反映
+- 探索報酬の受取
+- 世界イベント1種類
+- 世界イベントへの資源納品
+- 個人貢献度
+- イベント貢献ランキング
+- ゲーム画面での探索・イベント操作
 
 ## 技術構成
 
@@ -127,6 +136,11 @@ npm run build
 | POST | `/api/buildings/move` | 建物移動 |
 | GET | `/api/residents` | 住民一覧 |
 | POST | `/api/residents/talk` | 住民会話 |
+| POST | `/api/expeditions/start` | 探索開始 |
+| POST | `/api/expeditions/claim` | 探索報酬受取 |
+| GET | `/api/world-event` | 世界イベント取得 |
+| POST | `/api/world-event/contribute` | 世界イベント納品 |
+| GET | `/api/rankings` | ランキング取得 |
 
 ## 設計書
 

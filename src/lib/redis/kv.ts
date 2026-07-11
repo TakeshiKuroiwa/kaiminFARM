@@ -10,6 +10,7 @@ type StoredValue = string;
 type MemoryRedisStore = {
   values: Map<string, StoredValue>;
   expirations: Map<string, number>;
+  sortedSets: Map<string, Map<string, number>>;
 };
 
 const globalMemoryStore = globalThis as typeof globalThis & {
@@ -20,11 +21,13 @@ const memoryStore =
   globalMemoryStore.__kaiminMemoryRedis ??
   (globalMemoryStore.__kaiminMemoryRedis = {
     values: new Map<string, StoredValue>(),
-    expirations: new Map<string, number>()
+    expirations: new Map<string, number>(),
+    sortedSets: new Map<string, Map<string, number>>()
   });
 
 const memory = memoryStore.values;
 const expirations = memoryStore.expirations;
+const sortedSets = memoryStore.sortedSets;
 
 function getRedisConfig() {
   const url = process.env.KV_REST_API_URL;
@@ -110,6 +113,9 @@ function memoryCommand<T>(cmd: RedisCommand): T | null {
       if (memory.delete(key)) {
         deleted += 1;
       }
+      if (sortedSets.delete(key)) {
+        deleted += 1;
+      }
       expirations.delete(key);
     }
     return deleted as T;
@@ -123,6 +129,45 @@ function memoryCommand<T>(cmd: RedisCommand): T | null {
     }
     expirations.set(key, Date.now() + Number(args[1]) * 1000);
     return 1 as T;
+  }
+
+  if (op === "INCRBY") {
+    const key = String(args[0]);
+    clearExpired(key);
+    const nextValue = Number(memory.get(key) ?? 0) + Number(args[1]);
+    memory.set(key, String(nextValue));
+    return nextValue as T;
+  }
+
+  if (op === "ZINCRBY") {
+    const key = String(args[0]);
+    const increment = Number(args[1]);
+    const member = String(args[2]);
+    const set = sortedSets.get(key) ?? new Map<string, number>();
+    const nextScore = (set.get(member) ?? 0) + increment;
+    set.set(member, nextScore);
+    sortedSets.set(key, set);
+    return String(nextScore) as T;
+  }
+
+  if (op === "ZSCORE") {
+    const key = String(args[0]);
+    const member = String(args[1]);
+    const score = sortedSets.get(key)?.get(member);
+    return (score === undefined ? null : String(score)) as T | null;
+  }
+
+  if (op === "ZREVRANGE") {
+    const key = String(args[0]);
+    const start = Number(args[1]);
+    const stop = Number(args[2]);
+    const withScores = args.map(String).includes("WITHSCORES");
+    const entries = [...(sortedSets.get(key)?.entries() ?? [])].sort((left, right) => right[1] - left[1]);
+    const sliced = entries.slice(start, stop + 1);
+    if (!withScores) {
+      return sliced.map(([member]) => member) as T;
+    }
+    return sliced.flatMap(([member, score]) => [member, String(score)]) as T;
   }
 
   throw new Error(`Unsupported memory Redis command: ${op}`);
@@ -179,4 +224,27 @@ export async function deleteKeys(...keys: string[]): Promise<void> {
 
 export async function expireKey(key: string, ttlSeconds: number): Promise<void> {
   await command(["EXPIRE", key, ttlSeconds]);
+}
+
+export async function incrBy(key: string, amount: number) {
+  return (await command<number>(["INCRBY", key, amount])) ?? 0;
+}
+
+export async function zIncrBy(key: string, amount: number, member: string) {
+  const result = await command<string>(["ZINCRBY", key, amount, member]);
+  return Number(result ?? 0);
+}
+
+export async function zScore(key: string, member: string) {
+  const result = await command<string>(["ZSCORE", key, member]);
+  return Number(result ?? 0);
+}
+
+export async function zRevRangeWithScores(key: string, start: number, stop: number) {
+  const result = (await command<string[]>(["ZREVRANGE", key, start, stop, "WITHSCORES"])) ?? [];
+  const entries: Array<{ member: string; score: number }> = [];
+  for (let index = 0; index < result.length; index += 2) {
+    entries.push({ member: result[index], score: Number(result[index + 1] ?? 0) });
+  }
+  return entries;
 }

@@ -1,4 +1,4 @@
-import { BUILDING_MASTER, EMPTY_RESOURCES } from "@/constants/game-master";
+import { BUILDING_MASTER, EMPTY_RESOURCES, EXPEDITION_AREAS } from "@/constants/game-master";
 import type { GameState, Resources } from "@/types/game";
 import {
   getBuildings,
@@ -9,7 +9,8 @@ import {
   saveProfile,
   saveResources,
   saveBuildings,
-  saveResidents
+  saveResidents,
+  saveExpeditions
 } from "../repositories/game-repository";
 import {
   addResources,
@@ -21,6 +22,7 @@ import {
   completeTimedBuildings,
   syncResidentsWithTown
 } from "./game-mechanics";
+import { getWorldEventState } from "./world-event-service";
 
 export async function getSettledGameState(playerId: string): Promise<GameState | null> {
   const now = Date.now();
@@ -39,6 +41,12 @@ export async function getSettledGameState(playerId: string): Promise<GameState |
   const elapsedSeconds = Math.max(0, Math.floor((now - profile.lastCalculatedAt) / 1000));
   const calculatedSeconds = Math.min(elapsedSeconds, profile.offlineLimitSeconds);
   const completion = completeTimedBuildings(buildings, now);
+  const nextExpeditions = expeditions.map((expedition) =>
+    expedition.status === "running" && expedition.completeAt <= now ? { ...expedition, status: "claimable" as const } : expedition
+  );
+  const completedExpeditionNames = nextExpeditions
+    .filter((expedition) => expedition.status === "claimable" && expeditions.find((item) => item.expeditionId === expedition.expeditionId)?.status === "running")
+    .map((expedition) => EXPEDITION_AREAS[expedition.areaId].name);
   const stats = calculateTownStats(completion.buildings);
   const residentSync = syncResidentsWithTown(residents, completion.buildings, now);
   const gainedResources =
@@ -58,6 +66,7 @@ export async function getSettledGameState(playerId: string): Promise<GameState |
   if (
     calculatedSeconds > 0 ||
     completion.completedNames.length > 0 ||
+    completedExpeditionNames.length > 0 ||
     nextProfile.townRank !== profile.townRank ||
     residentSync.joinedNames.length > 0
   ) {
@@ -65,7 +74,8 @@ export async function getSettledGameState(playerId: string): Promise<GameState |
       saveResources(playerId, nextResources),
       saveProfile(nextProfile),
       saveBuildings(playerId, completion.buildings),
-      saveResidents(playerId, residentSync.residents)
+      saveResidents(playerId, residentSync.residents),
+      saveExpeditions(playerId, nextExpeditions)
     ]);
   }
 
@@ -73,9 +83,11 @@ export async function getSettledGameState(playerId: string): Promise<GameState |
     gainedResources,
     calculatedSeconds,
     completion.completedNames,
+    completedExpeditionNames,
     residentSync.joinedNames,
     residentSync.residents.map((resident) => resident.name)
   );
+  const worldEvent = await getWorldEventState(playerId);
 
   return {
     serverTime: now,
@@ -83,8 +95,9 @@ export async function getSettledGameState(playerId: string): Promise<GameState |
     resources: nextResources,
     buildings: completion.buildings,
     residents: residentSync.residents,
-    expeditions,
+    expeditions: nextExpeditions,
     townStats: stats,
+    worldEvent,
     offlineReport: {
       elapsedSeconds,
       calculatedSeconds,
@@ -98,6 +111,7 @@ function buildDiary(
   gained: Resources,
   calculatedSeconds: number,
   completedNames: string[],
+  completedExpeditionNames: string[],
   joinedNames: string[],
   residentNames: string[]
 ) {
@@ -105,6 +119,7 @@ function buildDiary(
   if (calculatedSeconds <= 0) {
     return [
       ...completedNames.map((name) => `${name}が完成しました。`),
+      ...completedExpeditionNames.map((name) => `${name}の探索隊が戻ってきました。`),
       ...joinedNames.map((name) => `${name}が町に引っ越してきました。`)
     ].slice(0, 5);
   }
@@ -119,6 +134,9 @@ function buildDiary(
   }
   for (const name of completedNames) {
     diary.push(`${name}が完成しました。`);
+  }
+  for (const name of completedExpeditionNames) {
+    diary.push(`${name}の探索隊が戻ってきました。`);
   }
   for (const name of joinedNames) {
     diary.push(`${name}が町に引っ越してきました。`);

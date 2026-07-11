@@ -72,6 +72,23 @@ export type Expedition = {
   claimedAt: UnixTimeMs | null;
 };
 
+export type WorldEvent = {
+  eventId: string;
+  title: string;
+  description: string;
+  status: "active" | "finished";
+  resourceId: ResourceId;
+  goalAmount: number;
+  currentAmount: number;
+  startedAt: UnixTimeMs;
+  endsAt: UnixTimeMs;
+};
+
+export type RankingEntry = {
+  playerId: PlayerId;
+  score: number;
+};
+
 export type OfflineReport = {
   elapsedSeconds: number;
   calculatedSeconds: number;
@@ -96,5 +113,10 @@ export type GameState = {
   residents: Resident[];
   expeditions: Expedition[];
   townStats: TownStats;
+  worldEvent: {
+    event: WorldEvent;
+    personalContribution: number;
+    ranking: RankingEntry[];
+  };
   offlineReport: OfflineReport;
 };
