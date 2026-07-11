@@ -48,12 +48,16 @@ export type BuildingInstance = {
 
 export type Resident = {
   residentId: string;
+  templateId: "moko" | "coro" | "mint";
   name: string;
   species: string;
   personality: string;
   friendship: number;
   skill: "farming" | "exploration" | "crafting" | "mining";
   status: "idle" | "expedition";
+  x: number;
+  y: number;
+  lastTalkedAt: UnixTimeMs | null;
   joinedAt: UnixTimeMs;
 };
 
@@ -75,6 +79,15 @@ export type OfflineReport = {
   diary: string[];
 };
 
+export type TownStats = {
+  population: number;
+  productionPower: number;
+  comfort: number;
+  bustle: number;
+  safety: number;
+  nature: number;
+};
+
 export type GameState = {
   serverTime: UnixTimeMs;
   profile: PlayerProfile;
@@ -82,5 +95,6 @@ export type GameState = {
   buildings: BuildingInstance[];
   residents: Resident[];
   expeditions: Expedition[];
+  townStats: TownStats;
   offlineReport: OfflineReport;
 };

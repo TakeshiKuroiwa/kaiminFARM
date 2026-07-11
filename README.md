@@ -10,7 +10,7 @@
 
 ## 現在の実装範囲
 
-基本設計書の開発フェーズ2相当まで実装済みです。
+基本設計書の開発フェーズ3相当まで実装済みです。
 
 - Next.js / React / TypeScript のアプリ基盤
 - アカウント登録
@@ -40,6 +40,14 @@
 - kaiminちゃん表示
 - 留守番日記の生成
 - ゲーム画面からの建設、強化、移動操作
+- 住宅数に応じた住民の移住
+- 住民一覧API
+- 住民会話API
+- 会話によるなかよし度上昇
+- 住民の簡易マップ移動
+- 隣接効果を含む町評価
+- ゲーム画面での町評価表示
+- ゲーム画面での住民会話
 
 ## 技術構成
 
@@ -117,6 +125,8 @@ npm run build
 | POST | `/api/buildings/build` | 建物建設 |
 | POST | `/api/buildings/upgrade` | 建物強化 |
 | POST | `/api/buildings/move` | 建物移動 |
+| GET | `/api/residents` | 住民一覧 |
+| POST | `/api/residents/talk` | 住民会話 |
 
 ## 設計書
 

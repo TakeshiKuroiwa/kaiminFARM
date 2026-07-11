@@ -1,4 +1,4 @@
-import type { BuildingType, Resources } from "@/types/game";
+import type { BuildingType, Resident, Resources } from "@/types/game";
 
 export const SESSION_COOKIE_NAME = "kaimin_session";
 export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
@@ -120,3 +120,54 @@ export const BUILDABLE_BUILDING_TYPES: BuildingType[] = [
 export const MAP_WIDTH = 10;
 export const MAP_HEIGHT = 10;
 export const MAX_BUILDING_LEVEL = 3;
+
+export type ResidentMaster = Omit<Resident, "residentId" | "friendship" | "status" | "x" | "y" | "lastTalkedAt" | "joinedAt"> & {
+  unlockHouseCount: number;
+  favoriteBuilding: BuildingType;
+  talkLines: string[];
+};
+
+export const RESIDENT_MASTER: ResidentMaster[] = [
+  {
+    templateId: "moko",
+    name: "モコ",
+    species: "アルパカ",
+    personality: "おっとり",
+    skill: "crafting",
+    unlockHouseCount: 1,
+    favoriteBuilding: "park",
+    talkLines: [
+      "広場にベンチがあると、つい長く休んでしまいますね。",
+      "kaiminちゃんは今日も町役場の前でうとうとしていました。",
+      "この町の空気は、毛糸を干すのにちょうどいいです。"
+    ]
+  },
+  {
+    templateId: "coro",
+    name: "コロ",
+    species: "犬",
+    personality: "元気",
+    skill: "exploration",
+    unlockHouseCount: 2,
+    favoriteBuilding: "expeditionBase",
+    talkLines: [
+      "近くの林なら、ぼくがすぐに道を覚えられそうです。",
+      "道が増えると、町を走るのが楽しくなりますね。",
+      "探索隊本部ができたら、いつでも声をかけてください。"
+    ]
+  },
+  {
+    templateId: "mint",
+    name: "ミント",
+    species: "ウサギ",
+    personality: "まじめ",
+    skill: "farming",
+    unlockHouseCount: 3,
+    favoriteBuilding: "farm",
+    talkLines: [
+      "畑の配置を少し整えるだけで、作業がずっと楽になります。",
+      "食料の備蓄は、町が大きくなるほど大切になります。",
+      "公園のそばに住宅があると、住民も落ち着いて暮らせます。"
+    ]
+  }
+];

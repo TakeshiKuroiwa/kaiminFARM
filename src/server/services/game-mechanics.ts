@@ -3,22 +3,18 @@ import {
   EMPTY_RESOURCES,
   MAP_HEIGHT,
   MAP_WIDTH,
-  MAX_BUILDING_LEVEL
+  MAX_BUILDING_LEVEL,
+  RESIDENT_MASTER
 } from "@/constants/game-master";
 import type {
   BuildingInstance,
   BuildingType,
   PlayerProfile,
+  Resident,
   ResourceId,
   Resources,
   TownRank
 } from "@/types/game";
-
-export type TownStats = {
-  population: number;
-  productionPower: number;
-  comfort: number;
-};
 
 export function addResources(left: Resources, right: Resources): Resources {
   return {
@@ -134,7 +130,7 @@ export function calculateOfflineLimitSeconds(buildings: BuildingInstance[]) {
   return 60 * 60 * 8;
 }
 
-export function calculateTownStats(buildings: BuildingInstance[]): TownStats {
+export function calculateTownStats(buildings: BuildingInstance[]) {
   const activeBuildings = buildings.filter((building) => building.status === "active");
   const population = activeBuildings.filter((building) => building.type === "house").length;
   const production = calculateProduction(activeBuildings, {
@@ -151,6 +147,9 @@ export function calculateTownStats(buildings: BuildingInstance[]): TownStats {
   });
   const productionPower = Math.floor((production.wood + production.food + production.ore + production.dreamCotton) * 1000);
   const parkCount = activeBuildings.filter((building) => building.type === "park").length;
+  const townHallCount = activeBuildings.filter((building) => building.type === "townHall").length;
+  const expeditionBaseCount = activeBuildings.filter((building) => building.type === "expeditionBase").length;
+  const mineCount = activeBuildings.filter((building) => building.type === "mine").length;
   const houseNextToParkCount = activeBuildings.filter(
     (building) => building.type === "house" && hasAdjacentType(building, activeBuildings, "park")
   ).length;
@@ -158,11 +157,14 @@ export function calculateTownStats(buildings: BuildingInstance[]): TownStats {
     (building) => building.type === "house" && hasAdjacentType(building, activeBuildings, "mine")
   ).length;
   const comfort = Math.max(0, parkCount * 5 + houseNextToParkCount * 3 - houseNextToMineCount * 4);
+  const bustle = Math.max(0, population * 2 + expeditionBaseCount * 5);
+  const safety = Math.max(0, townHallCount * 10 + population - mineCount * 2);
+  const nature = Math.max(0, parkCount * 5 - mineCount * 3);
 
-  return { population, productionPower, comfort };
+  return { population, productionPower, comfort, bustle, safety, nature };
 }
 
-export function calculateTownRank(stats: TownStats): TownRank {
+export function calculateTownRank(stats: ReturnType<typeof calculateTownStats>): TownRank {
   if (stats.population >= 8 && stats.productionPower >= 50 && stats.comfort >= 30) {
     return "fluffyTown";
   }
@@ -242,4 +244,68 @@ function getTownProductionMultiplier(rank: TownRank) {
 
 export function canUpgrade(building: BuildingInstance) {
   return building.status === "active" && building.type !== "townHall" && building.level < MAX_BUILDING_LEVEL;
+}
+
+export function syncResidentsWithTown(residents: Resident[], buildings: BuildingInstance[], now: number) {
+  const activeHouseCount = buildings.filter((building) => building.type === "house" && building.status === "active").length;
+  const nextResidents = [...residents];
+  const joinedNames: string[] = [];
+
+  for (const template of RESIDENT_MASTER) {
+    const alreadyJoined = nextResidents.some((resident) => resident.templateId === template.templateId);
+    if (alreadyJoined || activeHouseCount < template.unlockHouseCount) {
+      continue;
+    }
+
+    const spot = findResidentSpot(nextResidents, buildings, template.unlockHouseCount);
+    nextResidents.push({
+      residentId: `resident_${template.templateId}`,
+      templateId: template.templateId,
+      name: template.name,
+      species: template.species,
+      personality: template.personality,
+      friendship: 0,
+      skill: template.skill,
+      status: "idle",
+      x: spot.x,
+      y: spot.y,
+      lastTalkedAt: null,
+      joinedAt: now
+    });
+    joinedNames.push(template.name);
+  }
+
+  return { residents: moveIdleResidents(nextResidents, buildings, now), joinedNames };
+}
+
+export function moveIdleResidents(residents: Resident[], buildings: BuildingInstance[], now: number) {
+  return residents.map((resident, index) => {
+    if (resident.status !== "idle") {
+      return resident;
+    }
+    const step = Math.floor(now / 60000) + index;
+    const candidates = getWalkableSpots(buildings);
+    const spot = candidates[step % candidates.length] ?? { x: resident.x, y: resident.y };
+    return { ...resident, x: spot.x, y: spot.y };
+  });
+}
+
+function findResidentSpot(residents: Resident[], buildings: BuildingInstance[], offset: number) {
+  const candidates = getWalkableSpots(buildings);
+  return candidates[(residents.length + offset) % candidates.length] ?? { x: 0, y: 1 };
+}
+
+function getWalkableSpots(buildings: BuildingInstance[]) {
+  const spots: Array<{ x: number; y: number }> = [];
+  for (let y = 0; y < MAP_HEIGHT; y += 1) {
+    for (let x = 0; x < MAP_WIDTH; x += 1) {
+      const occupied = buildings.some((building) => {
+        return x >= building.x && x < building.x + building.width && y >= building.y && y < building.y + building.height;
+      });
+      if (!occupied) {
+        spots.push({ x, y });
+      }
+    }
+  }
+  return spots;
 }

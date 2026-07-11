@@ -3,12 +3,28 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BUILDABLE_BUILDING_TYPES, BUILDING_MASTER, MAX_BUILDING_LEVEL } from "@/constants/game-master";
-import type { BuildingInstance, BuildingType, GameState } from "@/types/game";
+import type { BuildingInstance, BuildingType, GameState, Resident } from "@/types/game";
 
 type GameStateResult =
   | {
       ok: true;
       data: GameState;
+    }
+  | {
+      ok: false;
+      error: {
+        message: string;
+      };
+    };
+
+type TalkResult =
+  | {
+      ok: true;
+      data: {
+        resident: Resident;
+        line: string;
+        friendshipGained: number;
+      };
     }
   | {
       ok: false;
@@ -51,6 +67,7 @@ export function GameDashboard() {
   const [selectedBuildingId, setSelectedBuildingId] = useState("");
   const [moveX, setMoveX] = useState(0);
   const [moveY, setMoveY] = useState(0);
+  const [dialogue, setDialogue] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -95,8 +112,16 @@ export function GameDashboard() {
       }
     }
 
+    for (const resident of state?.residents ?? []) {
+      const cell = cells.find((tile) => tile.x === resident.x && tile.y === resident.y);
+      if (cell && !cell.label) {
+        cell.label = resident.name.slice(0, 1);
+        cell.status = "resident";
+      }
+    }
+
     return cells;
-  }, [state?.buildings]);
+  }, [state?.buildings, state?.residents]);
 
   const selectedBuilding = useMemo(() => {
     return state?.buildings.find((building) => building.instanceId === selectedBuildingId) ?? null;
@@ -158,6 +183,34 @@ export function GameDashboard() {
       { instanceId: selectedBuilding.instanceId, x: moveX, y: moveY },
       "建物を移動しました。"
     );
+  }
+
+  async function talkToResident(resident: Resident) {
+    setDialogue("");
+    const response = await fetch("/api/residents/talk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ residentId: resident.residentId })
+    });
+    const result = (await response.json()) as TalkResult;
+    if (!result.ok) {
+      setActionMessage(result.error.message);
+      return;
+    }
+
+    setState((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        residents: current.residents.map((item) =>
+          item.residentId === result.data.resident.residentId ? result.data.resident : item
+        )
+      };
+    });
+    setDialogue(`${result.data.resident.name}: ${result.data.line}`);
+    setActionMessage(`${result.data.resident.name}となかよし度が${result.data.friendshipGained}上がりました。`);
   }
 
   async function logout() {
@@ -224,6 +277,17 @@ export function GameDashboard() {
           </p>
         </div>
       </section>
+      <section className="panel stack">
+        <h2>町の評価</h2>
+        <div className="stat-grid">
+          <div className="resource">人口 {state.townStats.population}</div>
+          <div className="resource">生産力 {state.townStats.productionPower}</div>
+          <div className="resource">ここちよさ {state.townStats.comfort}</div>
+          <div className="resource">にぎわい {state.townStats.bustle}</div>
+          <div className="resource">安心度 {state.townStats.safety}</div>
+          <div className="resource">自然度 {state.townStats.nature}</div>
+        </div>
+      </section>
       {state.offlineReport.diary.length > 0 ? (
         <section className="panel stack">
           <h2>kaiminちゃんの留守番日記</h2>
@@ -245,6 +309,31 @@ export function GameDashboard() {
             </div>
           ))}
         </div>
+      </section>
+      <section className="panel stack">
+        <h2>住民</h2>
+        {state.residents.length === 0 ? (
+          <p className="muted">住宅が完成すると、新しい住民が町へやってきます。</p>
+        ) : (
+          <div className="building-grid">
+            {state.residents.map((resident) => (
+              <article className="building-card" key={resident.residentId}>
+                <div>
+                  <strong>
+                    {resident.name} / {resident.species}
+                  </strong>
+                  <p className="muted small">
+                    {resident.personality} / なかよし度 {resident.friendship} / ({resident.x}, {resident.y})
+                  </p>
+                </div>
+                <button className="secondary" disabled={resident.status !== "idle"} onClick={() => talkToResident(resident)}>
+                  会話
+                </button>
+              </article>
+            ))}
+          </div>
+        )}
+        {dialogue ? <p className="dialogue">{dialogue}</p> : null}
       </section>
       <section className="panel stack">
         <h2>建設</h2>

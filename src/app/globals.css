@@ -125,13 +125,18 @@ input {
 
 .resource-grid,
 .map-grid,
-.building-grid {
+.building-grid,
+.stat-grid {
   display: grid;
   gap: 8px;
 }
 
 .resource-grid {
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.stat-grid {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
 }
 
 .resource {
@@ -176,6 +181,11 @@ input {
 .tile.upgrading {
   background: #d8e6f3;
   border-color: #6f92b1;
+}
+
+.tile.resident {
+  background: #f8e7ef;
+  border-color: #c77a9b;
 }
 
 .kaimin {
@@ -223,6 +233,12 @@ select {
 
 .small {
   font-size: 12px;
+}
+
+.dialogue {
+  border-left: 4px solid var(--accent);
+  padding: 8px 12px;
+  background: #f4faf1;
 }
 
 @media (max-width: 640px) {
