@@ -10,7 +10,7 @@
 
 ## 現在の実装範囲
 
-基本設計書の開発フェーズ1相当まで実装済みです。
+基本設計書の開発フェーズ2相当まで実装済みです。
 
 - Next.js / React / TypeScript のアプリ基盤
 - アカウント登録
@@ -29,6 +29,17 @@
 - 最小のゲーム画面
 - Redis接続抽象化
 - Redis未設定時の開発用メモリストア
+- サーバー時刻による時間経過精算
+- 建設中/強化中建物の完了処理
+- 建物建設API
+- 建物強化API
+- 建物移動API
+- 建物マスターに基づく資源生産
+- 倉庫によるオフライン生産上限の更新
+- 町ランクと簡易町評価
+- kaiminちゃん表示
+- 留守番日記の生成
+- ゲーム画面からの建設、強化、移動操作
 
 ## 技術構成
 
@@ -103,6 +114,9 @@ npm run build
 | POST | `/api/auth/password/recover` | 復旧コードによるパスワード再設定 |
 | GET | `/api/game/state` | ゲーム状態取得 |
 | POST | `/api/game/start` | ゲーム開始 |
+| POST | `/api/buildings/build` | 建物建設 |
+| POST | `/api/buildings/upgrade` | 建物強化 |
+| POST | `/api/buildings/move` | 建物移動 |
 
 ## 設計書
 

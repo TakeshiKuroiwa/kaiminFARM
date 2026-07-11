@@ -36,6 +36,7 @@ export type BuildingInstance = {
   instanceId: string;
   type: BuildingType;
   level: number;
+  targetLevel?: number;
   x: number;
   y: number;
   width: number;

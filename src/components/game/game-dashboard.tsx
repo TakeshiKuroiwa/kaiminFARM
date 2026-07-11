@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { GameState } from "@/types/game";
+import { BUILDABLE_BUILDING_TYPES, BUILDING_MASTER, MAX_BUILDING_LEVEL } from "@/constants/game-master";
+import type { BuildingInstance, BuildingType, GameState } from "@/types/game";
 
 type GameStateResult =
   | {
@@ -27,10 +28,29 @@ const buildingLabels: Record<string, string> = {
   expeditionBase: "探"
 };
 
+const rankLabels = {
+  smallSettlement: "小さな集落",
+  slowVillage: "のんびり村",
+  fluffyTown: "ふわふわ町"
+};
+
+const statusLabels = {
+  building: "建設中",
+  active: "稼働中",
+  upgrading: "強化中"
+};
+
 export function GameDashboard() {
   const router = useRouter();
   const [state, setState] = useState<GameState | null>(null);
   const [error, setError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const [buildType, setBuildType] = useState<BuildingType>("lumberYard");
+  const [buildX, setBuildX] = useState(0);
+  const [buildY, setBuildY] = useState(0);
+  const [selectedBuildingId, setSelectedBuildingId] = useState("");
+  const [moveX, setMoveX] = useState(0);
+  const [moveY, setMoveY] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -57,7 +77,8 @@ export function GameDashboard() {
     const cells = Array.from({ length: 100 }, (_, index) => ({
       x: index % 10,
       y: Math.floor(index / 10),
-      label: ""
+      label: "",
+      status: ""
     }));
 
     for (const building of state?.buildings ?? []) {
@@ -68,6 +89,7 @@ export function GameDashboard() {
           const cell = cells.find((tile) => tile.x === x && tile.y === y);
           if (cell) {
             cell.label = buildingLabels[building.type] ?? building.type;
+            cell.status = building.status;
           }
         }
       }
@@ -75,6 +97,68 @@ export function GameDashboard() {
 
     return cells;
   }, [state?.buildings]);
+
+  const selectedBuilding = useMemo(() => {
+    return state?.buildings.find((building) => building.instanceId === selectedBuildingId) ?? null;
+  }, [selectedBuildingId, state?.buildings]);
+
+  async function refreshState() {
+    const response = await fetch("/api/game/state", { cache: "no-store" });
+    const result = (await response.json()) as GameStateResult;
+    if (result.ok) {
+      setState(result.data);
+      setError("");
+      return;
+    }
+    setError(result.error.message);
+  }
+
+  async function postBuildingAction(path: string, payload: Record<string, unknown>, successMessage: string) {
+    setActionMessage("");
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        requestId: crypto.randomUUID(),
+        ...payload
+      })
+    });
+    const result = (await response.json()) as GameStateResult;
+    if (!result.ok) {
+      setActionMessage(result.error.message);
+      return;
+    }
+    setState(result.data);
+    setActionMessage(successMessage);
+  }
+
+  async function buildSelectedBuilding() {
+    await postBuildingAction(
+      "/api/buildings/build",
+      { buildingType: buildType, x: buildX, y: buildY },
+      "建設を開始しました。"
+    );
+  }
+
+  async function upgradeSelectedBuilding(building: BuildingInstance) {
+    await postBuildingAction(
+      "/api/buildings/upgrade",
+      { instanceId: building.instanceId },
+      "強化を開始しました。"
+    );
+  }
+
+  async function moveSelectedBuilding() {
+    if (!selectedBuilding) {
+      setActionMessage("移動する建物を選択してください。");
+      return;
+    }
+    await postBuildingAction(
+      "/api/buildings/move",
+      { instanceId: selectedBuilding.instanceId, x: moveX, y: moveY },
+      "建物を移動しました。"
+    );
+  }
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -104,20 +188,40 @@ export function GameDashboard() {
   return (
     <main className="page stack">
       <section className="panel stack">
-        <div className="row">
+        <div className="row space-between">
           <div>
             <h1>{state.profile.townName}</h1>
-            <p className="muted">{state.profile.displayName} / 小さな集落</p>
+            <p className="muted">
+              {state.profile.displayName} / {rankLabels[state.profile.townRank]}
+            </p>
           </div>
-          <button className="secondary" onClick={logout}>
-            ログアウト
-          </button>
+          <div className="row">
+            <button className="secondary" onClick={refreshState}>
+              更新
+            </button>
+            <button className="secondary" onClick={logout}>
+              ログアウト
+            </button>
+          </div>
         </div>
         <div className="resource-grid">
           <div className="resource">木材 {state.resources.wood}</div>
           <div className="resource">食料 {state.resources.food}</div>
           <div className="resource">鉱石 {state.resources.ore}</div>
           <div className="resource">夢わた {state.resources.dreamCotton}</div>
+        </div>
+      </section>
+      <section className="panel kaimin">
+        <div className="kaimin-avatar" aria-hidden="true">
+          羊
+        </div>
+        <div>
+          <h2>kaiminちゃん</h2>
+          <p className="muted">
+            {state.offlineReport.calculatedSeconds > 0
+              ? "留守のあいだの町の様子をまとめてくれました。"
+              : "町役場のそばで、次の建設を待っています。"}
+          </p>
         </div>
       </section>
       {state.offlineReport.diary.length > 0 ? (
@@ -132,12 +236,111 @@ export function GameDashboard() {
         <h2>町のマップ</h2>
         <div className="map-grid">
           {tiles.map((tile) => (
-            <div className={tile.label ? "tile occupied" : "tile"} key={`${tile.x}:${tile.y}`}>
+            <div
+              className={tile.label ? `tile occupied ${tile.status}` : "tile"}
+              key={`${tile.x}:${tile.y}`}
+              title={`${tile.x}:${tile.y}`}
+            >
               {tile.label}
             </div>
           ))}
         </div>
       </section>
+      <section className="panel stack">
+        <h2>建設</h2>
+        <div className="compact-form">
+          <label>
+            建物
+            <select value={buildType} onChange={(event) => setBuildType(event.target.value as BuildingType)}>
+              {BUILDABLE_BUILDING_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {BUILDING_MASTER[type].name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            X
+            <input type="number" min={0} max={9} value={buildX} onChange={(event) => setBuildX(Number(event.target.value))} />
+          </label>
+          <label>
+            Y
+            <input type="number" min={0} max={9} value={buildY} onChange={(event) => setBuildY(Number(event.target.value))} />
+          </label>
+          <button type="button" onClick={buildSelectedBuilding}>
+            建設
+          </button>
+        </div>
+        <p className="muted small">
+          {BUILDING_MASTER[buildType].description} 必要資源: {formatCost(BUILDING_MASTER[buildType].cost)}
+        </p>
+        {actionMessage ? <p className={actionMessage.includes("足り") || actionMessage.includes("でき") ? "error" : "success"}>{actionMessage}</p> : null}
+      </section>
+      <section className="panel stack">
+        <h2>建物一覧</h2>
+        <div className="building-grid">
+          {state.buildings.map((building) => (
+            <article className="building-card" key={building.instanceId}>
+              <div>
+                <strong>
+                  {BUILDING_MASTER[building.type].name} Lv.{building.level}
+                  {building.targetLevel ? ` → ${building.targetLevel}` : ""}
+                </strong>
+                <p className="muted small">
+                  {statusLabels[building.status]} / ({building.x}, {building.y})
+                </p>
+              </div>
+              <div className="row">
+                <button
+                  className="secondary"
+                  disabled={building.status !== "active" || building.level >= MAX_BUILDING_LEVEL || building.type === "townHall"}
+                  onClick={() => upgradeSelectedBuilding(building)}
+                >
+                  強化
+                </button>
+                <button
+                  className="secondary"
+                  disabled={building.status !== "active"}
+                  onClick={() => {
+                    setSelectedBuildingId(building.instanceId);
+                    setMoveX(building.x);
+                    setMoveY(building.y);
+                  }}
+                >
+                  移動選択
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+        <div className="compact-form">
+          <label>
+            移動先X
+            <input type="number" min={0} max={9} value={moveX} onChange={(event) => setMoveX(Number(event.target.value))} />
+          </label>
+          <label>
+            移動先Y
+            <input type="number" min={0} max={9} value={moveY} onChange={(event) => setMoveY(Number(event.target.value))} />
+          </label>
+          <button type="button" onClick={moveSelectedBuilding}>
+            選択中の建物を移動
+          </button>
+        </div>
+      </section>
     </main>
   );
+}
+
+function formatCost(cost: Partial<Record<string, number>>) {
+  const labels: Record<string, string> = {
+    wood: "木材",
+    food: "食料",
+    ore: "鉱石",
+    dreamCotton: "夢わた"
+  };
+  const entries = Object.entries(cost).filter(([, amount]) => amount && amount > 0);
+  if (entries.length === 0) {
+    return "なし";
+  }
+  return entries.map(([resourceId, amount]) => `${labels[resourceId]}${amount}`).join("、");
 }

@@ -1,0 +1,245 @@
+import {
+  BUILDING_MASTER,
+  EMPTY_RESOURCES,
+  MAP_HEIGHT,
+  MAP_WIDTH,
+  MAX_BUILDING_LEVEL
+} from "@/constants/game-master";
+import type {
+  BuildingInstance,
+  BuildingType,
+  PlayerProfile,
+  ResourceId,
+  Resources,
+  TownRank
+} from "@/types/game";
+
+export type TownStats = {
+  population: number;
+  productionPower: number;
+  comfort: number;
+};
+
+export function addResources(left: Resources, right: Resources): Resources {
+  return {
+    wood: left.wood + right.wood,
+    food: left.food + right.food,
+    ore: left.ore + right.ore,
+    dreamCotton: left.dreamCotton + right.dreamCotton
+  };
+}
+
+export function subtractResources(left: Resources, right: Partial<Resources>): Resources {
+  return {
+    wood: left.wood - (right.wood ?? 0),
+    food: left.food - (right.food ?? 0),
+    ore: left.ore - (right.ore ?? 0),
+    dreamCotton: left.dreamCotton - (right.dreamCotton ?? 0)
+  };
+}
+
+export function hasEnoughResources(resources: Resources, cost: Partial<Resources>) {
+  return (Object.keys(cost) as ResourceId[]).every((resourceId) => {
+    return resources[resourceId] >= (cost[resourceId] ?? 0);
+  });
+}
+
+export function multiplyCost(cost: Partial<Resources>, multiplier: number): Partial<Resources> {
+  const nextCost: Partial<Resources> = {};
+  for (const resourceId of Object.keys(cost) as ResourceId[]) {
+    const amount = cost[resourceId] ?? 0;
+    if (amount > 0) {
+      nextCost[resourceId] = Math.ceil(amount * multiplier);
+    }
+  }
+  return nextCost;
+}
+
+export function getUpgradeCost(building: BuildingInstance): Partial<Resources> {
+  const master = BUILDING_MASTER[building.type];
+  return multiplyCost(master.cost, 1 + building.level * 0.75);
+}
+
+export function getUpgradeSeconds(building: BuildingInstance) {
+  const master = BUILDING_MASTER[building.type];
+  return Math.max(60, Math.ceil(master.buildSeconds * (1 + building.level * 0.5)));
+}
+
+export function completeTimedBuildings(buildings: BuildingInstance[], now: number) {
+  const completedNames: string[] = [];
+  const nextBuildings = buildings.map((building) => {
+    if (building.status === "active" || !building.completeAt || building.completeAt > now) {
+      return building;
+    }
+
+    const nextLevel = building.status === "upgrading" ? building.targetLevel ?? building.level + 1 : building.level;
+    completedNames.push(BUILDING_MASTER[building.type].name);
+    return {
+      ...building,
+      level: nextLevel,
+      targetLevel: undefined,
+      status: "active" as const,
+      completeAt: null
+    };
+  });
+
+  return { buildings: nextBuildings, completedNames };
+}
+
+export function calculateProduction(buildings: BuildingInstance[], profile: PlayerProfile): Resources {
+  const production: Resources = { ...EMPTY_RESOURCES };
+  const townMultiplier = getTownProductionMultiplier(profile.townRank);
+
+  for (const building of buildings) {
+    if (building.status !== "active") {
+      continue;
+    }
+
+    const master = BUILDING_MASTER[building.type];
+    if (!master.productionPerSecond) {
+      continue;
+    }
+
+    const levelMultiplier = getLevelMultiplier(building.level);
+    for (const resourceId of Object.keys(master.productionPerSecond) as ResourceId[]) {
+      production[resourceId] +=
+        (master.productionPerSecond[resourceId] ?? 0) * levelMultiplier * townMultiplier;
+    }
+  }
+
+  return production;
+}
+
+export function calculateGainedResources(productionPerSecond: Resources, calculatedSeconds: number): Resources {
+  return {
+    wood: Math.floor(productionPerSecond.wood * calculatedSeconds),
+    food: Math.floor(productionPerSecond.food * calculatedSeconds),
+    ore: Math.floor(productionPerSecond.ore * calculatedSeconds),
+    dreamCotton: Math.floor(productionPerSecond.dreamCotton * calculatedSeconds)
+  };
+}
+
+export function calculateOfflineLimitSeconds(buildings: BuildingInstance[]) {
+  const activeWarehouseLevels = buildings
+    .filter((building) => building.type === "warehouse" && building.status === "active")
+    .map((building) => building.level);
+
+  const maxWarehouseLevel = Math.max(0, ...activeWarehouseLevels);
+  if (maxWarehouseLevel >= 3) {
+    return 60 * 60 * 18;
+  }
+  if (maxWarehouseLevel >= 2) {
+    return 60 * 60 * 12;
+  }
+  return 60 * 60 * 8;
+}
+
+export function calculateTownStats(buildings: BuildingInstance[]): TownStats {
+  const activeBuildings = buildings.filter((building) => building.status === "active");
+  const population = activeBuildings.filter((building) => building.type === "house").length;
+  const production = calculateProduction(activeBuildings, {
+    playerId: "",
+    displayName: "",
+    townName: "",
+    townRank: "smallSettlement",
+    townLevel: 1,
+    lastCalculatedAt: 0,
+    offlineLimitSeconds: 0,
+    isTownPublic: true,
+    createdAt: 0,
+    updatedAt: 0
+  });
+  const productionPower = Math.floor((production.wood + production.food + production.ore + production.dreamCotton) * 1000);
+  const parkCount = activeBuildings.filter((building) => building.type === "park").length;
+  const houseNextToParkCount = activeBuildings.filter(
+    (building) => building.type === "house" && hasAdjacentType(building, activeBuildings, "park")
+  ).length;
+  const houseNextToMineCount = activeBuildings.filter(
+    (building) => building.type === "house" && hasAdjacentType(building, activeBuildings, "mine")
+  ).length;
+  const comfort = Math.max(0, parkCount * 5 + houseNextToParkCount * 3 - houseNextToMineCount * 4);
+
+  return { population, productionPower, comfort };
+}
+
+export function calculateTownRank(stats: TownStats): TownRank {
+  if (stats.population >= 8 && stats.productionPower >= 50 && stats.comfort >= 30) {
+    return "fluffyTown";
+  }
+  if (stats.population >= 3 && stats.comfort >= 10) {
+    return "slowVillage";
+  }
+  return "smallSettlement";
+}
+
+export function canPlaceBuilding(
+  buildings: BuildingInstance[],
+  candidate: Pick<BuildingInstance, "instanceId" | "x" | "y" | "width" | "height">
+) {
+  if (candidate.x < 0 || candidate.y < 0) {
+    return false;
+  }
+  if (candidate.x + candidate.width > MAP_WIDTH || candidate.y + candidate.height > MAP_HEIGHT) {
+    return false;
+  }
+
+  return buildings.every((building) => {
+    if (building.instanceId === candidate.instanceId) {
+      return true;
+    }
+    return !rectsOverlap(candidate, building);
+  });
+}
+
+function rectsOverlap(
+  left: Pick<BuildingInstance, "x" | "y" | "width" | "height">,
+  right: Pick<BuildingInstance, "x" | "y" | "width" | "height">
+) {
+  return (
+    left.x <= right.x + right.width - 1 &&
+    left.x + left.width - 1 >= right.x &&
+    left.y <= right.y + right.height - 1 &&
+    left.y + left.height - 1 >= right.y
+  );
+}
+
+function hasAdjacentType(building: BuildingInstance, buildings: BuildingInstance[], type: BuildingType) {
+  return buildings.some((other) => {
+    if (other.instanceId === building.instanceId || other.type !== type) {
+      return false;
+    }
+    const horizontallyAdjacent =
+      building.y < other.y + other.height &&
+      building.y + building.height > other.y &&
+      (building.x + building.width === other.x || other.x + other.width === building.x);
+    const verticallyAdjacent =
+      building.x < other.x + other.width &&
+      building.x + building.width > other.x &&
+      (building.y + building.height === other.y || other.y + other.height === building.y);
+    return horizontallyAdjacent || verticallyAdjacent;
+  });
+}
+
+function getLevelMultiplier(level: number) {
+  if (level >= 3) {
+    return 1.5;
+  }
+  if (level === 2) {
+    return 1.2;
+  }
+  return 1;
+}
+
+function getTownProductionMultiplier(rank: TownRank) {
+  if (rank === "fluffyTown") {
+    return 1.1;
+  }
+  if (rank === "slowVillage") {
+    return 1.05;
+  }
+  return 1;
+}
+
+export function canUpgrade(building: BuildingInstance) {
+  return building.status === "active" && building.type !== "townHall" && building.level < MAX_BUILDING_LEVEL;
+}

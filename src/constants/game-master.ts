@@ -21,6 +21,7 @@ export const EMPTY_RESOURCES: Resources = {
 export type BuildingMaster = {
   type: BuildingType;
   name: string;
+  description: string;
   width: number;
   height: number;
   buildSeconds: number;
@@ -32,6 +33,7 @@ export const BUILDING_MASTER: Record<BuildingType, BuildingMaster> = {
   townHall: {
     type: "townHall",
     name: "町役場",
+    description: "町の中心となる施設です。",
     width: 2,
     height: 2,
     buildSeconds: 0,
@@ -40,6 +42,7 @@ export const BUILDING_MASTER: Record<BuildingType, BuildingMaster> = {
   house: {
     type: "house",
     name: "住宅",
+    description: "住民が暮らす家です。町の人口を増やします。",
     width: 1,
     height: 1,
     buildSeconds: 300,
@@ -48,6 +51,7 @@ export const BUILDING_MASTER: Record<BuildingType, BuildingMaster> = {
   lumberYard: {
     type: "lumberYard",
     name: "伐採所",
+    description: "時間経過で木材を生産します。",
     width: 1,
     height: 1,
     buildSeconds: 300,
@@ -57,6 +61,7 @@ export const BUILDING_MASTER: Record<BuildingType, BuildingMaster> = {
   farm: {
     type: "farm",
     name: "畑",
+    description: "時間経過で食料を生産します。",
     width: 1,
     height: 1,
     buildSeconds: 300,
@@ -66,6 +71,7 @@ export const BUILDING_MASTER: Record<BuildingType, BuildingMaster> = {
   mine: {
     type: "mine",
     name: "採掘場",
+    description: "時間経過で鉱石を生産します。",
     width: 1,
     height: 1,
     buildSeconds: 900,
@@ -75,6 +81,7 @@ export const BUILDING_MASTER: Record<BuildingType, BuildingMaster> = {
   warehouse: {
     type: "warehouse",
     name: "倉庫",
+    description: "オフライン生産の上限時間を伸ばします。",
     width: 1,
     height: 1,
     buildSeconds: 600,
@@ -83,6 +90,7 @@ export const BUILDING_MASTER: Record<BuildingType, BuildingMaster> = {
   park: {
     type: "park",
     name: "公園",
+    description: "町のここちよさを上げます。",
     width: 1,
     height: 1,
     buildSeconds: 300,
@@ -91,9 +99,24 @@ export const BUILDING_MASTER: Record<BuildingType, BuildingMaster> = {
   expeditionBase: {
     type: "expeditionBase",
     name: "探索隊本部",
+    description: "周辺地域への探索を解放します。",
     width: 2,
     height: 1,
     buildSeconds: 1200,
     cost: { wood: 150, ore: 40 }
   }
 };
+
+export const BUILDABLE_BUILDING_TYPES: BuildingType[] = [
+  "house",
+  "lumberYard",
+  "farm",
+  "mine",
+  "warehouse",
+  "park",
+  "expeditionBase"
+];
+
+export const MAP_WIDTH = 10;
+export const MAP_HEIGHT = 10;
+export const MAX_BUILDING_LEVEL = 3;

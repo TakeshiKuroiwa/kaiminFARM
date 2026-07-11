@@ -7,8 +7,24 @@ type RedisRestResponse<T> = {
 
 type StoredValue = string;
 
-const memory = new Map<string, StoredValue>();
-const expirations = new Map<string, number>();
+type MemoryRedisStore = {
+  values: Map<string, StoredValue>;
+  expirations: Map<string, number>;
+};
+
+const globalMemoryStore = globalThis as typeof globalThis & {
+  __kaiminMemoryRedis?: MemoryRedisStore;
+};
+
+const memoryStore =
+  globalMemoryStore.__kaiminMemoryRedis ??
+  (globalMemoryStore.__kaiminMemoryRedis = {
+    values: new Map<string, StoredValue>(),
+    expirations: new Map<string, number>()
+  });
+
+const memory = memoryStore.values;
+const expirations = memoryStore.expirations;
 
 function getRedisConfig() {
   const url = process.env.KV_REST_API_URL;

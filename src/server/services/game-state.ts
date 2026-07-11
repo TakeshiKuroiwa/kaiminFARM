@@ -1,4 +1,4 @@
-import { EMPTY_RESOURCES } from "@/constants/game-master";
+import { BUILDING_MASTER, EMPTY_RESOURCES } from "@/constants/game-master";
 import type { GameState, Resources } from "@/types/game";
 import {
   getBuildings,
@@ -7,17 +7,18 @@ import {
   getResources,
   getResidents,
   saveProfile,
-  saveResources
+  saveResources,
+  saveBuildings
 } from "../repositories/game-repository";
-
-function addResources(left: Resources, right: Resources): Resources {
-  return {
-    wood: left.wood + right.wood,
-    food: left.food + right.food,
-    ore: left.ore + right.ore,
-    dreamCotton: left.dreamCotton + right.dreamCotton
-  };
-}
+import {
+  addResources,
+  calculateGainedResources,
+  calculateOfflineLimitSeconds,
+  calculateProduction,
+  calculateTownRank,
+  calculateTownStats,
+  completeTimedBuildings
+} from "./game-mechanics";
 
 export async function getSettledGameState(playerId: string): Promise<GameState | null> {
   const now = Date.now();
@@ -35,41 +36,37 @@ export async function getSettledGameState(playerId: string): Promise<GameState |
 
   const elapsedSeconds = Math.max(0, Math.floor((now - profile.lastCalculatedAt) / 1000));
   const calculatedSeconds = Math.min(elapsedSeconds, profile.offlineLimitSeconds);
-  const gainedResources: Resources = { ...EMPTY_RESOURCES };
-
-  for (const building of buildings) {
-    if (building.status !== "active") {
-      continue;
-    }
-    if (building.type === "lumberYard") {
-      gainedResources.wood += Math.floor(0.0333 * calculatedSeconds);
-    }
-    if (building.type === "farm") {
-      gainedResources.food += Math.floor(0.025 * calculatedSeconds);
-    }
-    if (building.type === "mine") {
-      gainedResources.ore += Math.floor(0.0083 * calculatedSeconds);
-    }
-  }
+  const completion = completeTimedBuildings(buildings, now);
+  const stats = calculateTownStats(completion.buildings);
+  const gainedResources =
+    calculatedSeconds > 0
+      ? calculateGainedResources(calculateProduction(completion.buildings, profile), calculatedSeconds)
+      : { ...EMPTY_RESOURCES };
 
   const nextResources = addResources(resources, gainedResources);
   const nextProfile = {
     ...profile,
+    townRank: calculateTownRank(stats),
+    offlineLimitSeconds: calculateOfflineLimitSeconds(completion.buildings),
     lastCalculatedAt: now,
     updatedAt: now
   };
 
-  if (calculatedSeconds > 0) {
-    await Promise.all([saveResources(playerId, nextResources), saveProfile(nextProfile)]);
+  if (calculatedSeconds > 0 || completion.completedNames.length > 0 || nextProfile.townRank !== profile.townRank) {
+    await Promise.all([
+      saveResources(playerId, nextResources),
+      saveProfile(nextProfile),
+      saveBuildings(playerId, completion.buildings)
+    ]);
   }
 
-  const diary = buildDiary(gainedResources, calculatedSeconds);
+  const diary = buildDiary(gainedResources, calculatedSeconds, completion.completedNames);
 
   return {
     serverTime: now,
     profile: nextProfile,
     resources: nextResources,
-    buildings,
+    buildings: completion.buildings,
     residents,
     expeditions,
     offlineReport: {
@@ -81,10 +78,10 @@ export async function getSettledGameState(playerId: string): Promise<GameState |
   };
 }
 
-function buildDiary(gained: Resources, calculatedSeconds: number) {
+function buildDiary(gained: Resources, calculatedSeconds: number, completedNames: string[]) {
   const diary: string[] = [];
   if (calculatedSeconds <= 0) {
-    return diary;
+    return completedNames.map((name) => `${name}が完成しました。`).slice(0, 5);
   }
   if (gained.wood > 0) {
     diary.push(`伐採所で木材が${gained.wood}個集まりました。`);
@@ -95,6 +92,16 @@ function buildDiary(gained: Resources, calculatedSeconds: number) {
   if (gained.ore > 0) {
     diary.push(`採掘場から鉱石が${gained.ore}個届きました。`);
   }
+  for (const name of completedNames) {
+    diary.push(`${name}が完成しました。`);
+  }
+  const activeProductionCount = Object.entries(gained).filter(([, amount]) => amount > 0).length;
+  if (activeProductionCount === 0) {
+    diary.push("町は静かに朝を迎えました。");
+  }
   diary.push("kaiminちゃんが町役場の前で手を振っていました。");
+  if (completedNames.some((name) => name === BUILDING_MASTER.park.name)) {
+    diary.push("kaiminちゃんが新しい公園でうとうとしていました。");
+  }
   return diary.slice(0, 5);
 }
