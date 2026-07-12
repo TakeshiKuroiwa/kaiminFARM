@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PixiTownMap } from "@/components/game/pixi-town-map";
 import {
   BUILDABLE_BUILDING_TYPES,
   BUILDING_MASTER,
   EXPEDITION_AREAS,
-  KAIMIN_OUTFITS,
   MAX_BUILDING_LEVEL
 } from "@/constants/game-master";
 import type {
@@ -14,11 +14,12 @@ import type {
   BuildingType,
   Expedition,
   GameState,
-  KaiminOutfit,
   PublicTownSnapshot,
   Resident,
+  ResourceId,
   Resources
 } from "@/types/game";
+import type { BuildingView, TileView } from "@/lib/game-view/map-view-model";
 
 type GameStateResult =
   | {
@@ -91,16 +92,7 @@ type TownVisitResult =
       };
     };
 
-const buildingLabels: Record<string, string> = {
-  townHall: "町",
-  house: "家",
-  lumberYard: "木",
-  farm: "畑",
-  mine: "鉱",
-  warehouse: "倉",
-  park: "公",
-  expeditionBase: "探"
-};
+type ActionPanel = "build" | "buildings" | "residents" | "expeditions" | "event" | "visit";
 
 const rankLabels = {
   smallSettlement: "小さな集落",
@@ -112,6 +104,15 @@ const statusLabels = {
   building: "建設中",
   active: "稼働中",
   upgrading: "強化中"
+};
+
+const actionPanelLabels: Record<ActionPanel, string> = {
+  build: "建設",
+  buildings: "建物",
+  residents: "住民",
+  expeditions: "探索",
+  event: "イベント",
+  visit: "訪問"
 };
 
 export function GameDashboard() {
@@ -131,6 +132,10 @@ export function GameDashboard() {
   const [eventAmount, setEventAmount] = useState(10);
   const [visitTownId, setVisitTownId] = useState("");
   const [visitedTown, setVisitedTown] = useState<PublicTownSnapshot | null>(null);
+  const [activePanel, setActivePanel] = useState<ActionPanel>("build");
+  const [diaryOpen, setDiaryOpen] = useState(false);
+  const previousResourcesRef = useRef<Resources | null>(null);
+  const [resourceGains, setResourceGains] = useState<Partial<Resources>>({});
 
   useEffect(() => {
     let active = true;
@@ -142,6 +147,7 @@ export function GameDashboard() {
         }
         if (result.ok) {
           setState(result.data);
+          setDiaryOpen(result.data.offlineReport.diary.length > 0);
           return;
         }
         setError(result.error.message);
@@ -153,42 +159,52 @@ export function GameDashboard() {
     };
   }, []);
 
-  const tiles = useMemo(() => {
-    const cells = Array.from({ length: 100 }, (_, index) => ({
-      x: index % 10,
-      y: Math.floor(index / 10),
-      label: "",
-      status: ""
-    }));
-
-    for (const building of state?.buildings ?? []) {
-      for (let dy = 0; dy < building.height; dy += 1) {
-        for (let dx = 0; dx < building.width; dx += 1) {
-          const x = building.x + dx;
-          const y = building.y + dy;
-          const cell = cells.find((tile) => tile.x === x && tile.y === y);
-          if (cell) {
-            cell.label = buildingLabels[building.type] ?? building.type;
-            cell.status = building.status;
-          }
-        }
-      }
-    }
-
-    for (const resident of state?.residents ?? []) {
-      const cell = cells.find((tile) => tile.x === resident.x && tile.y === resident.y);
-      if (cell && !cell.label) {
-        cell.label = resident.name.slice(0, 1);
-        cell.status = "resident";
-      }
-    }
-
-    return cells;
-  }, [state?.buildings, state?.residents]);
-
   const selectedBuilding = useMemo(() => {
     return state?.buildings.find((building) => building.instanceId === selectedBuildingId) ?? null;
   }, [selectedBuildingId, state?.buildings]);
+
+  const selectedResourceCost = BUILDING_MASTER[buildType].cost;
+
+  const claimableExpeditions = useMemo(() => {
+    return state?.expeditions.filter((expedition) => expedition.status === "claimable").length ?? 0;
+  }, [state?.expeditions]);
+
+  const worldEventProgress = useMemo(() => {
+    if (!state) {
+      return 0;
+    }
+    return Math.min(100, Math.round((state.worldEvent.event.currentAmount / state.worldEvent.event.goalAmount) * 100));
+  }, [state]);
+
+  useEffect(() => {
+    if (!state) {
+      return;
+    }
+
+    const previousResources = previousResourcesRef.current;
+    previousResourcesRef.current = state.resources;
+
+    if (!previousResources) {
+      return;
+    }
+
+    const gains: Partial<Resources> = {};
+    for (const resourceId of Object.keys(state.resources) as ResourceId[]) {
+      const difference = state.resources[resourceId] - previousResources[resourceId];
+      if (difference > 0) {
+        gains[resourceId] = difference;
+      }
+    }
+
+    if (Object.keys(gains).length === 0) {
+      return;
+    }
+
+    setResourceGains(gains);
+    const timerId = window.setTimeout(() => setResourceGains({}), 1400);
+
+    return () => window.clearTimeout(timerId);
+  }, [state]);
 
   async function refreshState() {
     const response = await fetch("/api/game/state", { cache: "no-store" });
@@ -343,22 +359,6 @@ export function GameDashboard() {
     setActionMessage("世界イベントへ資源を納品しました。");
   }
 
-  async function changeKaiminOutfit(outfit: KaiminOutfit) {
-    setActionMessage("");
-    const response = await fetch("/api/player/preferences", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kaiminOutfit: outfit })
-    });
-    const result = (await response.json()) as GameStateResult;
-    if (!result.ok) {
-      setActionMessage(result.error.message);
-      return;
-    }
-    setState(result.data);
-    setActionMessage("kaiminちゃんの衣装を変更しました。");
-  }
-
   async function visitTown() {
     setActionMessage("");
     setVisitedTown(null);
@@ -391,6 +391,33 @@ export function GameDashboard() {
     router.refresh();
   }
 
+  function selectTile(tile: TileView) {
+    if (tile.occupiedBy) {
+      const building = state?.buildings.find((item) => item.instanceId === tile.occupiedBy);
+      if (building) {
+        selectBuilding(building);
+      }
+      return;
+    }
+
+    setBuildX(tile.x);
+    setBuildY(tile.y);
+    setMoveX(tile.x);
+    setMoveY(tile.y);
+    setActivePanel("build");
+  }
+
+  function selectBuilding(building: Pick<BuildingInstance, "instanceId" | "x" | "y">) {
+    setSelectedBuildingId(building.instanceId);
+    setMoveX(building.x);
+    setMoveY(building.y);
+    setActivePanel("buildings");
+  }
+
+  function selectResident() {
+    setActivePanel("residents");
+  }
+
   if (error) {
     return (
       <main className="page stack">
@@ -411,313 +438,394 @@ export function GameDashboard() {
   }
 
   return (
-    <main className="page stack">
-      <section className="panel stack">
-        <div className="row space-between">
-          <div>
-            <h1>{state.profile.townName}</h1>
-            <p className="muted">
-              {state.profile.displayName} / {rankLabels[state.profile.townRank]}
-            </p>
-            <p className="muted small">公開町ID: {state.profile.playerId}</p>
-          </div>
-          <div className="row">
-            <button className="secondary" onClick={refreshState}>
-              更新
-            </button>
-            <button className="secondary" onClick={logout}>
-              ログアウト
-            </button>
-          </div>
-        </div>
-        <div className="resource-grid">
-          <div className="resource">木材 {state.resources.wood}</div>
-          <div className="resource">食料 {state.resources.food}</div>
-          <div className="resource">鉱石 {state.resources.ore}</div>
-          <div className="resource">夢わた {state.resources.dreamCotton}</div>
-        </div>
-      </section>
-      <section className="panel kaimin">
-        <div className="kaimin-avatar" aria-hidden="true">
-          羊
-        </div>
-        <div>
-          <h2>kaiminちゃん</h2>
-          <p className="muted">
-            {state.offlineReport.calculatedSeconds > 0
-              ? "留守のあいだの町の様子をまとめてくれました。"
-              : "町役場のそばで、次の建設を待っています。"}
-          </p>
-          <label>
-            衣装
-            <select value={state.profile.kaiminOutfit} onChange={(event) => changeKaiminOutfit(event.target.value as KaiminOutfit)}>
-              {Object.entries(KAIMIN_OUTFITS).map(([outfit, detail]) => (
-                <option key={outfit} value={outfit}>
-                  {detail.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </section>
-      <section className="panel stack">
-        <h2>季節イベント</h2>
-        <strong>{state.seasonalEvent.title}</strong>
-        <p className="muted">{state.seasonalEvent.description}</p>
-        <p>報酬: {state.seasonalEvent.rewardLabel}</p>
-      </section>
-      <section className="panel stack">
-        <h2>運営ステータス</h2>
-        <p>{state.operationsStatus.message}</p>
-      </section>
-      <section className="panel stack">
-        <h2>町の評価</h2>
-        <div className="stat-grid">
-          <div className="resource">人口 {state.townStats.population}</div>
-          <div className="resource">生産力 {state.townStats.productionPower}</div>
-          <div className="resource">ここちよさ {state.townStats.comfort}</div>
-          <div className="resource">にぎわい {state.townStats.bustle}</div>
-          <div className="resource">安心度 {state.townStats.safety}</div>
-          <div className="resource">自然度 {state.townStats.nature}</div>
-        </div>
-      </section>
-      {state.offlineReport.diary.length > 0 ? (
-        <section className="panel stack">
-          <h2>kaiminちゃんの留守番日記</h2>
-          {state.offlineReport.diary.map((line) => (
-            <p key={line}>{line}</p>
-          ))}
-        </section>
-      ) : null}
-      <section className="panel stack">
-        <h2>町のマップ</h2>
-        <div className="map-grid">
-          {tiles.map((tile) => (
-            <div
-              className={tile.label ? `tile occupied ${tile.status}` : "tile"}
-              key={`${tile.x}:${tile.y}`}
-              title={`${tile.x}:${tile.y}`}
-            >
-              {tile.label}
+    <main className="game-page">
+      {diaryOpen ? (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="offline-diary-title">
+          <section className="modal-panel stack">
+            <div className="diary-head">
+              <div>
+                <h2 id="offline-diary-title">kaiminちゃんの留守番日記</h2>
+                <p className="muted">町役場に届いた、留守のあいだの町の記録です。</p>
+              </div>
             </div>
-          ))}
+            <div className="resource-grid">
+              <div className="resource">木材 +{state.offlineReport.gainedResources.wood}</div>
+              <div className="resource">食料 +{state.offlineReport.gainedResources.food}</div>
+              <div className="resource">鉱石 +{state.offlineReport.gainedResources.ore}</div>
+              <div className="resource">夢わた +{state.offlineReport.gainedResources.dreamCotton}</div>
+            </div>
+            <div className="diary-list">
+              {state.offlineReport.diary.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
+            <button type="button" onClick={() => setDiaryOpen(false)}>
+              町へ行く
+            </button>
+          </section>
         </div>
-      </section>
-      <section className="panel stack">
-        <h2>町訪問</h2>
-        <div className="compact-form">
-          <label>
-            公開町ID
-            <input value={visitTownId} onChange={(event) => setVisitTownId(event.target.value)} />
-          </label>
-          <button type="button" onClick={visitTown}>
-            訪問
+      ) : null}
+
+      <header className="game-hud">
+        <div className="town-title">
+          <h1>{state.profile.townName}</h1>
+          <p className="muted">
+            {state.profile.displayName} / {rankLabels[state.profile.townRank]}
+          </p>
+          <p className="muted small">公開町ID: {state.profile.playerId}</p>
+        </div>
+        <div className="hud-resources" aria-label="資源">
+          <div className={resourceGains.wood ? "resource-chip gain" : "resource-chip"}>
+            <span>木材</span>
+            <strong>{state.resources.wood}</strong>
+            {resourceGains.wood ? <em className="resource-delta">+{resourceGains.wood}</em> : null}
+          </div>
+          <div className={resourceGains.food ? "resource-chip gain" : "resource-chip"}>
+            <span>食料</span>
+            <strong>{state.resources.food}</strong>
+            {resourceGains.food ? <em className="resource-delta">+{resourceGains.food}</em> : null}
+          </div>
+          <div className={resourceGains.ore ? "resource-chip gain" : "resource-chip"}>
+            <span>鉱石</span>
+            <strong>{state.resources.ore}</strong>
+            {resourceGains.ore ? <em className="resource-delta">+{resourceGains.ore}</em> : null}
+          </div>
+          <div className={resourceGains.dreamCotton ? "resource-chip gain" : "resource-chip"}>
+            <span>夢わた</span>
+            <strong>{state.resources.dreamCotton}</strong>
+            {resourceGains.dreamCotton ? <em className="resource-delta">+{resourceGains.dreamCotton}</em> : null}
+          </div>
+        </div>
+        <div className="hud-actions">
+          <button className="secondary" type="button" onClick={refreshState}>
+            更新
+          </button>
+          <button className="secondary" type="button" onClick={logout}>
+            ログアウト
           </button>
         </div>
-        {visitedTown ? (
-          <article className="building-card">
-            <strong>{visitedTown.townName}</strong>
-            <p className="muted">
-              {visitedTown.displayName} / {rankLabels[visitedTown.townRank]} / いい夢 {visitedTown.likes}
-            </p>
-            <p className="small">
-              人口 {visitedTown.townStats.population} / ここちよさ {visitedTown.townStats.comfort} / 建物 {visitedTown.buildings.length}
-            </p>
-            <button className="secondary" type="button" onClick={sendGoodDream}>
-              いい夢を送る
+      </header>
+
+      <div className="game-shell">
+        <nav className="action-rail" aria-label="ゲーム操作">
+          {(Object.keys(actionPanelLabels) as ActionPanel[]).map((panel) => (
+            <button
+              className={panel === activePanel ? "rail-button active" : "rail-button"}
+              key={panel}
+              type="button"
+              onClick={() => setActivePanel(panel)}
+            >
+              <span>{actionPanelLabels[panel]}</span>
+              {panel === "expeditions" && claimableExpeditions > 0 ? <strong>{claimableExpeditions}</strong> : null}
             </button>
-          </article>
-        ) : null}
-      </section>
-      <section className="panel stack">
-        <h2>住民</h2>
-        {state.residents.length === 0 ? (
-          <p className="muted">住宅が完成すると、新しい住民が町へやってきます。</p>
-        ) : (
-          <div className="building-grid">
-            {state.residents.map((resident) => (
-              <article className="building-card" key={resident.residentId}>
-                <div>
+          ))}
+        </nav>
+
+        <section className="map-stage panel stack">
+          <div className="map-header">
+            <div className="map-title">
+              <h2>ねむり丘マップ</h2>
+              <p className="muted small">
+                {state.offlineReport.calculatedSeconds > 0
+                  ? "留守中の変化が反映されています。"
+                  : "建物を選ぶと右側に詳細が出ます。"}
+              </p>
+            </div>
+            <p className="map-note">町役場、住宅、畑、公園の配置で町の表情が変わります。</p>
+          </div>
+          <div className="map-board" aria-label="町のマップ">
+            <PixiTownMap
+              buildTarget={{ x: buildX, y: buildY, type: buildType }}
+              eventProgress={worldEventProgress}
+              mapSource={state}
+              onBuildingSelect={(building: BuildingView) => selectBuilding(building)}
+              onResidentSelect={selectResident}
+              onTileSelect={selectTile}
+              seasonalEventId={state.seasonalEvent.eventId}
+              selectedBuildingId={selectedBuildingId}
+            />
+          </div>
+        </section>
+
+        <aside className="inspector panel stack">
+          <div>
+            <h2>{actionPanelLabels[activePanel]}</h2>
+            <p className="muted small">{selectedBuilding ? `${BUILDING_MASTER[selectedBuilding.type].name}を選択中` : "マップまたは左の操作を選んでください。"}</p>
+          </div>
+
+          {activePanel === "build" ? (
+            <>
+              <div className="compact-form">
+                <label>
+                  建物
+                  <select value={buildType} onChange={(event) => setBuildType(event.target.value as BuildingType)}>
+                    {BUILDABLE_BUILDING_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {BUILDING_MASTER[type].name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  X
+                  <input type="number" min={0} max={9} value={buildX} onChange={(event) => setBuildX(Number(event.target.value))} />
+                </label>
+                <label>
+                  Y
+                  <input type="number" min={0} max={9} value={buildY} onChange={(event) => setBuildY(Number(event.target.value))} />
+                </label>
+              </div>
+              <article className="detail-card">
+                <strong>{BUILDING_MASTER[buildType].name}</strong>
+                <p className="muted">{BUILDING_MASTER[buildType].description}</p>
+                <p className="small">必要資源: {formatCost(selectedResourceCost)}</p>
+                <p className="small">サイズ: {BUILDING_MASTER[buildType].width}x{BUILDING_MASTER[buildType].height}</p>
+              </article>
+              <button type="button" onClick={buildSelectedBuilding}>
+                建設
+              </button>
+            </>
+          ) : null}
+
+          {activePanel === "buildings" ? (
+            <>
+              {selectedBuilding ? (
+                <article className="detail-card">
                   <strong>
-                    {resident.name} / {resident.species}
+                    {BUILDING_MASTER[selectedBuilding.type].name} Lv.{selectedBuilding.level}
+                    {selectedBuilding.targetLevel ? ` -> ${selectedBuilding.targetLevel}` : ""}
                   </strong>
                   <p className="muted small">
-                    {resident.personality} / なかよし度 {resident.friendship} / ({resident.x}, {resident.y})
+                    {statusLabels[selectedBuilding.status]} / ({selectedBuilding.x}, {selectedBuilding.y})
                   </p>
+                  <p>{BUILDING_MASTER[selectedBuilding.type].description}</p>
+                  <div className="row">
+                    <button
+                      className="secondary"
+                      disabled={selectedBuilding.status !== "active" || selectedBuilding.level >= MAX_BUILDING_LEVEL || selectedBuilding.type === "townHall"}
+                      type="button"
+                      onClick={() => upgradeSelectedBuilding(selectedBuilding)}
+                    >
+                      強化
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={selectedBuilding.status !== "active"}
+                      type="button"
+                      onClick={moveSelectedBuilding}
+                    >
+                      移動
+                    </button>
+                  </div>
+                </article>
+              ) : (
+                <p className="muted">マップまたは一覧から建物を選択してください。</p>
+              )}
+              <div className="compact-form">
+                <label>
+                  移動先X
+                  <input type="number" min={0} max={9} value={moveX} onChange={(event) => setMoveX(Number(event.target.value))} />
+                </label>
+                <label>
+                  移動先Y
+                  <input type="number" min={0} max={9} value={moveY} onChange={(event) => setMoveY(Number(event.target.value))} />
+                </label>
+              </div>
+              <div className="scroll-list">
+                {state.buildings.map((building) => (
+                  <button
+                    className={building.instanceId === selectedBuildingId ? "list-button selected" : "list-button"}
+                    key={building.instanceId}
+                    type="button"
+                    onClick={() => {
+                      setSelectedBuildingId(building.instanceId);
+                      setMoveX(building.x);
+                      setMoveY(building.y);
+                    }}
+                  >
+                    <span>
+                      {BUILDING_MASTER[building.type].name} Lv.{building.level}
+                    </span>
+                    <small>
+                      {statusLabels[building.status]} ({building.x}, {building.y})
+                    </small>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {activePanel === "residents" ? (
+            <>
+              {state.residents.length === 0 ? (
+                <p className="muted">住宅が完成すると、新しい住民が町へやってきます。</p>
+              ) : (
+                <div className="scroll-list">
+                  {state.residents.map((resident) => (
+                    <article className="detail-card" key={resident.residentId}>
+                      <strong>
+                        {resident.name} / {resident.species}
+                      </strong>
+                      <p className="muted small">
+                        {resident.personality} / なかよし度 {resident.friendship} / ({resident.x}, {resident.y})
+                      </p>
+                      <button className="secondary" disabled={resident.status !== "idle"} type="button" onClick={() => talkToResident(resident)}>
+                        会話
+                      </button>
+                    </article>
+                  ))}
                 </div>
-                <button className="secondary" disabled={resident.status !== "idle"} onClick={() => talkToResident(resident)}>
-                  会話
-                </button>
-              </article>
-            ))}
-          </div>
-        )}
-        {dialogue ? <p className="dialogue">{dialogue}</p> : null}
-      </section>
-      <section className="panel stack">
-        <h2>探索</h2>
-        <div className="compact-form">
-          <label>
-            探索先
-            <select value={expeditionAreaId} onChange={(event) => setExpeditionAreaId(event.target.value as Expedition["areaId"])}>
-              {Object.values(EXPEDITION_AREAS).map((area) => (
-                <option key={area.areaId} value={area.areaId}>
-                  {area.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            派遣住民
-            <select
-              multiple
-              value={selectedResidentIds}
-              onChange={(event) => {
-                setSelectedResidentIds(Array.from(event.currentTarget.selectedOptions).map((option) => option.value));
-              }}
-            >
-              {state.residents.map((resident) => (
-                <option key={resident.residentId} value={resident.residentId} disabled={resident.status !== "idle"}>
-                  {resident.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button type="button" onClick={startExpedition}>
-            探索開始
-          </button>
-        </div>
-        <p className="muted small">
-          {EXPEDITION_AREAS[expeditionAreaId].name} / 食料{EXPEDITION_AREAS[expeditionAreaId].foodCost} /{" "}
-          {Math.floor(EXPEDITION_AREAS[expeditionAreaId].durationSeconds / 60)}分
-        </p>
-        <div className="building-grid">
-          {state.expeditions.map((expedition) => (
-            <article className="building-card" key={expedition.expeditionId}>
-              <strong>{EXPEDITION_AREAS[expedition.areaId].name}</strong>
-              <p className="muted small">
-                {expedition.status === "running" ? "探索中" : expedition.status === "claimable" ? "報酬受取可" : "受取済み"} / 帰還{" "}
-                {new Date(expedition.completeAt).toLocaleTimeString("ja-JP")}
-              </p>
-              <button className="secondary" disabled={expedition.status !== "claimable"} onClick={() => claimExpedition(expedition)}>
-                報酬受取
-              </button>
-            </article>
-          ))}
-        </div>
-      </section>
-      <section className="panel stack">
-        <h2>世界イベント</h2>
-        <div>
-          <strong>{state.worldEvent.event.title}</strong>
-          <p className="muted">{state.worldEvent.event.description}</p>
-          <p>
-            進捗 {state.worldEvent.event.currentAmount} / {state.worldEvent.event.goalAmount}
-          </p>
-          <p className="muted">自分の貢献量 {state.worldEvent.personalContribution}</p>
-        </div>
-        <div className="compact-form">
-          <label>
-            納品量
-            <input
-              type="number"
-              min={1}
-              max={100000}
-              value={eventAmount}
-              onChange={(event) => setEventAmount(Number(event.target.value))}
-            />
-          </label>
-          <button type="button" onClick={contributeToWorldEvent}>
-            {resourceLabel(state.worldEvent.event.resourceId)}を納品
-          </button>
-        </div>
-        <div className="building-grid">
-          {state.worldEvent.ranking.map((entry, index) => (
-            <div className="resource" key={entry.playerId}>
-              {index + 1}. {entry.playerId.slice(0, 16)} / {entry.score}
-            </div>
-          ))}
-        </div>
-      </section>
-      <section className="panel stack">
-        <h2>建設</h2>
-        <div className="compact-form">
-          <label>
-            建物
-            <select value={buildType} onChange={(event) => setBuildType(event.target.value as BuildingType)}>
-              {BUILDABLE_BUILDING_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {BUILDING_MASTER[type].name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            X
-            <input type="number" min={0} max={9} value={buildX} onChange={(event) => setBuildX(Number(event.target.value))} />
-          </label>
-          <label>
-            Y
-            <input type="number" min={0} max={9} value={buildY} onChange={(event) => setBuildY(Number(event.target.value))} />
-          </label>
-          <button type="button" onClick={buildSelectedBuilding}>
-            建設
-          </button>
-        </div>
-        <p className="muted small">
-          {BUILDING_MASTER[buildType].description} 必要資源: {formatCost(BUILDING_MASTER[buildType].cost)}
-        </p>
-        {actionMessage ? <p className={actionMessage.includes("足り") || actionMessage.includes("でき") ? "error" : "success"}>{actionMessage}</p> : null}
-      </section>
-      <section className="panel stack">
-        <h2>建物一覧</h2>
-        <div className="building-grid">
-          {state.buildings.map((building) => (
-            <article className="building-card" key={building.instanceId}>
-              <div>
-                <strong>
-                  {BUILDING_MASTER[building.type].name} Lv.{building.level}
-                  {building.targetLevel ? ` → ${building.targetLevel}` : ""}
-                </strong>
-                <p className="muted small">
-                  {statusLabels[building.status]} / ({building.x}, {building.y})
+              )}
+            </>
+          ) : null}
+
+          {activePanel === "expeditions" ? (
+            <>
+              <div className="compact-form">
+                <label>
+                  探索先
+                  <select value={expeditionAreaId} onChange={(event) => setExpeditionAreaId(event.target.value as Expedition["areaId"])}>
+                    {Object.values(EXPEDITION_AREAS).map((area) => (
+                      <option key={area.areaId} value={area.areaId}>
+                        {area.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  派遣住民
+                  <select
+                    multiple
+                    value={selectedResidentIds}
+                    onChange={(event) => {
+                      setSelectedResidentIds(Array.from(event.currentTarget.selectedOptions).map((option) => option.value));
+                    }}
+                  >
+                    {state.residents.map((resident) => (
+                      <option key={resident.residentId} value={resident.residentId} disabled={resident.status !== "idle"}>
+                        {resident.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <article className="detail-card">
+                <strong>{EXPEDITION_AREAS[expeditionAreaId].name}</strong>
+                <p className="small">
+                  食料{EXPEDITION_AREAS[expeditionAreaId].foodCost} / {Math.floor(EXPEDITION_AREAS[expeditionAreaId].durationSeconds / 60)}分
                 </p>
+              </article>
+              <button type="button" onClick={startExpedition}>
+                探索開始
+              </button>
+              <div className="scroll-list">
+                {state.expeditions.map((expedition) => (
+                  <article className="detail-card" key={expedition.expeditionId}>
+                    <strong>{EXPEDITION_AREAS[expedition.areaId].name}</strong>
+                    <p className="muted small">
+                      {expedition.status === "running" ? "探索中" : expedition.status === "claimable" ? "報酬受取可" : "受取済み"} / 帰還{" "}
+                      {new Date(expedition.completeAt).toLocaleTimeString("ja-JP")}
+                    </p>
+                    <button className="secondary" disabled={expedition.status !== "claimable"} type="button" onClick={() => claimExpedition(expedition)}>
+                      報酬受取
+                    </button>
+                  </article>
+                ))}
               </div>
-              <div className="row">
-                <button
-                  className="secondary"
-                  disabled={building.status !== "active" || building.level >= MAX_BUILDING_LEVEL || building.type === "townHall"}
-                  onClick={() => upgradeSelectedBuilding(building)}
-                >
-                  強化
-                </button>
-                <button
-                  className="secondary"
-                  disabled={building.status !== "active"}
-                  onClick={() => {
-                    setSelectedBuildingId(building.instanceId);
-                    setMoveX(building.x);
-                    setMoveY(building.y);
-                  }}
-                >
-                  移動選択
+            </>
+          ) : null}
+
+          {activePanel === "event" ? (
+            <>
+              <article className="detail-card">
+                <strong>{state.worldEvent.event.title}</strong>
+                <p className="muted">{state.worldEvent.event.description}</p>
+                <div className="progress-bar" aria-label={`世界イベント進捗 ${worldEventProgress}%`}>
+                  <span style={{ width: `${worldEventProgress}%` }} />
+                </div>
+                <p className="small">
+                  進捗 {state.worldEvent.event.currentAmount} / {state.worldEvent.event.goalAmount}
+                </p>
+                <p className="small">自分の貢献量 {state.worldEvent.personalContribution}</p>
+              </article>
+              <div className="compact-form">
+                <label>
+                  納品量
+                  <input type="number" min={1} max={100000} value={eventAmount} onChange={(event) => setEventAmount(Number(event.target.value))} />
+                </label>
+                <button type="button" onClick={contributeToWorldEvent}>
+                  {resourceLabel(state.worldEvent.event.resourceId)}を納品
                 </button>
               </div>
-            </article>
-          ))}
+              <div className="scroll-list">
+                {state.worldEvent.ranking.map((entry, index) => (
+                  <div className="resource" key={entry.playerId}>
+                    {index + 1}. {entry.playerId.slice(0, 16)} / {entry.score}
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {activePanel === "visit" ? (
+            <>
+              <div className="compact-form">
+                <label>
+                  公開町ID
+                  <input value={visitTownId} onChange={(event) => setVisitTownId(event.target.value)} />
+                </label>
+                <button type="button" onClick={visitTown}>
+                  訪問
+                </button>
+              </div>
+              {visitedTown ? (
+                <article className="detail-card visit-card">
+                  <strong>{visitedTown.townName}</strong>
+                  <p className="muted">
+                    {visitedTown.displayName} / {rankLabels[visitedTown.townRank]} / いい夢 {visitedTown.likes}
+                  </p>
+                  <p className="small">
+                    人口 {visitedTown.townStats.population} / ここちよさ {visitedTown.townStats.comfort} / 建物 {visitedTown.buildings.length}
+                  </p>
+                  <div className="visit-map-shell">
+                    <PixiTownMap mapSource={visitedTown} readOnly seasonalEventId={state.seasonalEvent.eventId} />
+                  </div>
+                  <button className="secondary" type="button" onClick={sendGoodDream}>
+                    いい夢を送る
+                  </button>
+                </article>
+              ) : null}
+            </>
+          ) : null}
+
+          {actionMessage ? <p className={actionMessage.includes("足り") || actionMessage.includes("でき") ? "error" : "success"}>{actionMessage}</p> : null}
+        </aside>
+      </div>
+
+      <section className="bottom-log">
+        <div className="log-card">
+          <strong>町の評価</strong>
+          <div className="stat-strip">
+            <span>人口 {state.townStats.population}</span>
+            <span>生産力 {state.townStats.productionPower}</span>
+            <span>ここちよさ {state.townStats.comfort}</span>
+            <span>にぎわい {state.townStats.bustle}</span>
+            <span>安心度 {state.townStats.safety}</span>
+            <span>自然度 {state.townStats.nature}</span>
+          </div>
         </div>
-        <div className="compact-form">
-          <label>
-            移動先X
-            <input type="number" min={0} max={9} value={moveX} onChange={(event) => setMoveX(Number(event.target.value))} />
-          </label>
-          <label>
-            移動先Y
-            <input type="number" min={0} max={9} value={moveY} onChange={(event) => setMoveY(Number(event.target.value))} />
-          </label>
-          <button type="button" onClick={moveSelectedBuilding}>
-            選択中の建物を移動
-          </button>
+        <div className="log-card">
+          <strong>{state.seasonalEvent.title}</strong>
+          <p className="muted small">{state.seasonalEvent.description}</p>
+        </div>
+        <div className="log-card">
+          <strong>町の声</strong>
+          <p className="muted small">{dialogue || state.operationsStatus.message}</p>
+          {state.offlineReport.diary.length > 0 ? (
+            <button className="text-button" type="button" onClick={() => setDiaryOpen(true)}>
+              留守番日記を読む
+            </button>
+          ) : null}
         </div>
       </section>
     </main>

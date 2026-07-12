@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 type Props = {
@@ -48,12 +49,19 @@ export function AuthForm({ mode }: Props) {
             password: String(form.get("password") ?? "")
           };
 
-    const response = await fetch(mode === "register" ? "/api/auth/register" : "/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    const result = (await response.json()) as ApiResult;
+    let result: ApiResult;
+    try {
+      const response = await fetch(mode === "register" ? "/api/auth/register" : "/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      result = (await response.json()) as ApiResult;
+    } catch {
+      setSubmitting(false);
+      setMessage("通信に失敗しました。時間をおいてもう一度お試しください。");
+      return;
+    }
     setSubmitting(false);
 
     if (!result.ok) {
@@ -93,13 +101,24 @@ export function AuthForm({ mode }: Props) {
           </label>
           <label className="row">
             <input name="acceptedTerms" type="checkbox" required style={{ width: "auto" }} />
-            利用規約に同意します
+            <span>
+              <Link href="/terms">利用規約</Link>に同意します
+            </span>
           </label>
         </>
       ) : null}
       <button type="submit" disabled={submitting}>
         {submitting ? "送信中" : mode === "register" ? "アカウント作成" : "ログイン"}
       </button>
+      <p className="muted small">
+        {mode === "register" ? (
+          <Link href="/login">登録済みの方はログインへ</Link>
+        ) : (
+          <Link href="/register">はじめての方はアカウント作成へ</Link>
+        )}
+        {" / "}
+        <Link href="/terms">利用規約</Link>
+      </p>
       {message ? <p className={recoveryCode ? "success" : "error"}>{message}</p> : null}
       {recoveryCode ? (
         <div className="panel stack">

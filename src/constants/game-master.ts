@@ -147,7 +147,7 @@ export const RESIDENT_MASTER: ResidentMaster[] = [
     favoriteBuilding: "park",
     talkLines: [
       "広場にベンチがあると、つい長く休んでしまいますね。",
-      "kaiminちゃんは今日も町役場の前でうとうとしていました。",
+      "町役場の掲示板に、今日もふしぎな夢メモが増えていました。",
       "この町の空気は、毛糸を干すのにちょうどいいです。"
     ]
   },
@@ -221,15 +221,15 @@ export const ACTIVE_WORLD_EVENT: Omit<WorldEvent, "currentAmount" | "startedAt" 
 export const KAIMIN_OUTFITS: Record<KaiminOutfit, { name: string; description: string }> = {
   default: {
     name: "いつものふわふわ",
-    description: "kaiminちゃんの普段着です。"
+    description: "過去バージョンとの互換用設定です。現在のUIでは使用しません。"
   },
   nightcap: {
     name: "おやすみナイトキャップ",
-    description: "留守番日記を書くときに眠くなりにくい帽子です。"
+    description: "過去バージョンとの互換用設定です。現在のUIでは使用しません。"
   },
   festival: {
     name: "収穫祭のケープ",
-    description: "世界イベントの広場によく似合う衣装です。"
+    description: "過去バージョンとの互換用設定です。現在のUIでは使用しません。"
   }
 };
 

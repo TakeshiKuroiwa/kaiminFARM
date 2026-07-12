@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 export default function HomePage() {
   return (
     <main className="page stack">
@@ -7,15 +5,15 @@ export default function HomePage() {
         <p className="muted">kaiminちゃんのねむり丘タウン</p>
         <h1>眠っている間にも、やさしい町は育っていく。</h1>
         <p>
-          羊のkaiminちゃんと一緒に、小さな集落を少しずつ発展させる放置型町づくりゲームです。
+          建物、畑、公園、探索拠点を配置し、小さな集落を少しずつ発展させる放置型町づくりゲームです。
         </p>
         <div className="nav">
-          <Link className="button" href="/login">
+          <a className="button" href="/login">
             ログイン
-          </Link>
-          <Link className="button secondary" href="/register">
+          </a>
+          <a className="button secondary" href="/register">
             はじめから
-          </Link>
+          </a>
         </div>
       </section>
     </main>

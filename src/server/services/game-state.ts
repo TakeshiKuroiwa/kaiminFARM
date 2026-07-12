@@ -164,9 +164,9 @@ function buildDiary(
     const residentName = residentNames[Math.floor(Date.now() / 60000) % residentNames.length];
     diary.push(`${residentName}が広場を散歩していました。`);
   }
-  diary.push("kaiminちゃんが町役場の前で手を振っていました。");
+  diary.push("町役場の掲示板に、留守中の出来事が丁寧に記録されていました。");
   if (completedNames.some((name) => name === BUILDING_MASTER.park.name)) {
-    diary.push("kaiminちゃんが新しい公園でうとうとしていました。");
+    diary.push("新しい公園の木陰に、休憩中の住民の足あとが残っていました。");
   }
   return diary.slice(0, 5);
 }
