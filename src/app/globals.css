@@ -32,6 +32,11 @@ select {
   font: inherit;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .page {
   width: min(960px, calc(100% - 32px));
   margin: 0 auto;
@@ -587,6 +592,37 @@ select {
 
 .detail-card p {
   margin-bottom: 0;
+}
+
+.placement-card {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 11px 12px;
+  background: #fbfdf9;
+}
+
+.placement-card p {
+  margin: 0;
+}
+
+.placement-card.valid {
+  border-color: #8ab79c;
+  background: #f0faf3;
+}
+
+.placement-card.valid strong {
+  color: var(--accent-strong);
+}
+
+.placement-card.invalid {
+  border-color: #d99a8c;
+  background: #fff4f1;
+}
+
+.placement-card.invalid strong {
+  color: var(--danger);
 }
 
 .conversation-box {

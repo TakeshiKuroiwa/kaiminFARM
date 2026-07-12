@@ -9,6 +9,8 @@ import {
   BUILDABLE_BUILDING_TYPES,
   BUILDING_MASTER,
   EXPEDITION_AREAS,
+  MAP_HEIGHT,
+  MAP_WIDTH,
   MAX_BUILDING_LEVEL,
   RESIDENT_MASTER
 } from "@/constants/game-master";
@@ -109,6 +111,14 @@ type ResourceShortageDetails = {
 type PendingConversation = {
   resident: Resident;
   event: ResidentTalkEvent;
+};
+type PlacementStatus = "valid" | "outOfBounds" | "collision" | "insufficientResources" | "inactiveBuilding" | "noSelection";
+type PlacementCheck = {
+  status: PlacementStatus;
+  message: string;
+  width: number;
+  height: number;
+  collidingBuildingIds: string[];
 };
 
 const rankLabels = {
@@ -252,6 +262,50 @@ export function GameDashboard() {
 
   const selectedResourceCost = BUILDING_MASTER[buildType].cost;
 
+  const buildPlacement = useMemo(() => {
+    if (!state) {
+      return null;
+    }
+    const master = BUILDING_MASTER[buildType];
+    return checkPlacement({
+      buildings: state.buildings,
+      resources: state.resources,
+      cost: master.cost,
+      x: buildX,
+      y: buildY,
+      width: master.width,
+      height: master.height
+    });
+  }, [buildType, buildX, buildY, state]);
+
+  const movePlacement = useMemo(() => {
+    if (!state || !selectedBuilding) {
+      return null;
+    }
+    return checkPlacement({
+      buildings: state.buildings,
+      x: moveX,
+      y: moveY,
+      width: selectedBuilding.width,
+      height: selectedBuilding.height,
+      movingBuildingId: selectedBuilding.instanceId,
+      requireActiveBuilding: selectedBuilding.status === "active"
+    });
+  }, [moveX, moveY, selectedBuilding, state]);
+
+  const activePlacement = activePanel === "build" ? buildPlacement : activePanel === "buildings" ? movePlacement : null;
+  const placementPreview =
+    activePlacement && (activePanel === "build" || selectedBuilding)
+      ? {
+          x: activePanel === "build" ? buildX : moveX,
+          y: activePanel === "build" ? buildY : moveY,
+          width: activePlacement.width,
+          height: activePlacement.height,
+          isValid: activePlacement.status === "valid",
+          collidingBuildingIds: activePlacement.collidingBuildingIds
+        }
+      : undefined;
+
   const claimableExpeditions = useMemo(() => {
     return state?.expeditions.filter((expedition) => expedition.status === "claimable").length ?? 0;
   }, [state?.expeditions]);
@@ -341,6 +395,10 @@ export function GameDashboard() {
   }
 
   async function buildSelectedBuilding() {
+    if (buildPlacement && buildPlacement.status !== "valid") {
+      setActionMessage(buildPlacement.message);
+      return;
+    }
     await postBuildingAction(
       "/api/buildings/build",
       { buildingType: buildType, x: buildX, y: buildY },
@@ -359,6 +417,10 @@ export function GameDashboard() {
   async function moveSelectedBuilding() {
     if (!selectedBuilding) {
       setActionMessage("移動する建物を選択してください。");
+      return;
+    }
+    if (movePlacement && movePlacement.status !== "valid") {
+      setActionMessage(movePlacement.message);
       return;
     }
     await postBuildingAction(
@@ -500,6 +562,18 @@ export function GameDashboard() {
   }
 
   function selectTile(tile: TileView) {
+    if (activePanel === "build") {
+      setBuildX(tile.x);
+      setBuildY(tile.y);
+      return;
+    }
+
+    if (activePanel === "buildings" && selectedBuilding) {
+      setMoveX(tile.x);
+      setMoveY(tile.y);
+      return;
+    }
+
     if (tile.occupiedBy) {
       const building = state?.buildings.find((item) => item.instanceId === tile.occupiedBy);
       if (building) {
@@ -666,12 +740,19 @@ export function GameDashboard() {
           </div>
           <div className="map-board" aria-label="町のマップ">
             <PixiTownMap
-              buildTarget={{ x: buildX, y: buildY, type: buildType }}
               eventProgress={worldEventProgress}
               mapSource={state}
-              onBuildingSelect={(building: BuildingView) => selectBuilding(building)}
+              onBuildingSelect={(building: BuildingView) => {
+                if (activePanel === "build") {
+                  setBuildX(building.x);
+                  setBuildY(building.y);
+                  return;
+                }
+                selectBuilding(building);
+              }}
               onResidentSelect={selectResident}
               onTileSelect={selectTile}
+              placementPreview={placementPreview}
               seasonalEventId={state.seasonalEvent.eventId}
               selectedBuildingId={selectedBuildingId}
             />
@@ -712,7 +793,8 @@ export function GameDashboard() {
                 <p className="small">必要資源: {formatCost(selectedResourceCost)}</p>
                 <p className="small">サイズ: {BUILDING_MASTER[buildType].width}x{BUILDING_MASTER[buildType].height}</p>
               </article>
-              <button type="button" onClick={buildSelectedBuilding}>
+              {buildPlacement ? <PlacementStatusCard placement={buildPlacement} /> : null}
+              <button type="button" disabled={buildPlacement?.status !== "valid"} onClick={buildSelectedBuilding}>
                 建設
               </button>
             </>
@@ -762,6 +844,7 @@ export function GameDashboard() {
                   <input type="number" min={0} max={9} value={moveY} onChange={(event) => setMoveY(Number(event.target.value))} />
                 </label>
               </div>
+              {movePlacement ? <PlacementStatusCard placement={movePlacement} /> : null}
               <div className="scroll-list">
                 {state.buildings.map((building) => (
                   <button
@@ -1097,6 +1180,111 @@ function ResourceShortageModal({ details, onClose }: { details: ResourceShortage
       </section>
     </div>
   );
+}
+
+function PlacementStatusCard({ placement }: { placement: PlacementCheck }) {
+  return (
+    <article className={placement.status === "valid" ? "placement-card valid" : "placement-card invalid"}>
+      <strong>{placement.status === "valid" ? "配置できます" : "配置できません"}</strong>
+      <p className="small">{placement.message}</p>
+      {placement.collidingBuildingIds.length > 0 ? <p className="small">重なっている建物: {placement.collidingBuildingIds.length}件</p> : null}
+    </article>
+  );
+}
+
+function checkPlacement({
+  buildings,
+  cost,
+  resources,
+  x,
+  y,
+  width,
+  height,
+  movingBuildingId,
+  requireActiveBuilding = true
+}: {
+  buildings: BuildingInstance[];
+  cost?: Partial<Resources>;
+  resources?: Resources;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  movingBuildingId?: string;
+  requireActiveBuilding?: boolean;
+}): PlacementCheck {
+  if (!requireActiveBuilding) {
+    return {
+      status: "inactiveBuilding",
+      message: "建設中または強化中の建物は移動できません。",
+      width,
+      height,
+      collidingBuildingIds: []
+    };
+  }
+
+  if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x + width > MAP_WIDTH || y + height > MAP_HEIGHT) {
+    return {
+      status: "outOfBounds",
+      message: `マップ内に収まる座標を選んでください。サイズ${width}x${height}の場合、右端と下端を越えない位置が必要です。`,
+      width,
+      height,
+      collidingBuildingIds: []
+    };
+  }
+
+  const collidingBuildingIds = buildings
+    .filter((building) => building.instanceId !== movingBuildingId && rectsOverlap({ x, y, width, height }, building))
+    .map((building) => building.instanceId);
+
+  if (collidingBuildingIds.length > 0) {
+    return {
+      status: "collision",
+      message: "他の建物と重なっています。赤く表示された建物を避けてください。",
+      width,
+      height,
+      collidingBuildingIds
+    };
+  }
+
+  if (cost && resources) {
+    const missing = getMissingResourceLabels(resources, cost);
+    if (missing.length > 0) {
+      return {
+        status: "insufficientResources",
+        message: `資源が足りません: ${missing.join("、")}`,
+        width,
+        height,
+        collidingBuildingIds: []
+      };
+    }
+  }
+
+  return {
+    status: "valid",
+    message: `選択中の${width}x${height}マスを使用します。`,
+    width,
+    height,
+    collidingBuildingIds: []
+  };
+}
+
+function rectsOverlap(
+  left: Pick<BuildingInstance, "x" | "y" | "width" | "height">,
+  right: Pick<BuildingInstance, "x" | "y" | "width" | "height">
+) {
+  return (
+    left.x <= right.x + right.width - 1 &&
+    left.x + left.width - 1 >= right.x &&
+    left.y <= right.y + right.height - 1 &&
+    left.y + left.height - 1 >= right.y
+  );
+}
+
+function getMissingResourceLabels(resources: Resources, cost: Partial<Resources>) {
+  return (Object.keys(cost) as ResourceId[])
+    .filter((resourceId) => resources[resourceId] < (cost[resourceId] ?? 0))
+    .map((resourceId) => `${resourceLabel(resourceId)} ${resources[resourceId]}/${cost[resourceId] ?? 0}`);
 }
 
 function getResidentTalkEvent(resident: Resident) {
