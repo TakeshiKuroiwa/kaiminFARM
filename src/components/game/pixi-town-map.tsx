@@ -30,10 +30,13 @@ type TownSurfacePlan = {
 
 type PixiTownMapProps = {
   mapSource: GameState | PublicTownSnapshot | MapViewSource;
-  buildTarget?: {
+  placementPreview?: {
     x: number;
     y: number;
-    type: BuildingType;
+    width: number;
+    height: number;
+    isValid: boolean;
+    collidingBuildingIds: string[];
   };
   eventProgress?: number;
   readOnly?: boolean;
@@ -113,7 +116,7 @@ const groundColors: Record<GroundKind, { fill: number; edge: number; accent: num
 
 export function PixiTownMap({
   mapSource,
-  buildTarget,
+  placementPreview,
   eventProgress = 0,
   readOnly = false,
   seasonalEventId = "",
@@ -218,7 +221,7 @@ export function PixiTownMap({
       app,
       root,
       viewModel,
-      buildTarget,
+      placementPreview,
       eventProgress,
       readOnly,
       reducedMotion,
@@ -233,7 +236,7 @@ export function PixiTownMap({
       }
     });
   }, [
-    buildTarget,
+    placementPreview,
     eventProgress,
     isReady,
     onBuildingSelect,
@@ -271,7 +274,7 @@ function drawTownMap({
   app,
   root,
   viewModel,
-  buildTarget,
+  placementPreview,
   eventProgress,
   readOnly,
   selectedBuildingId,
@@ -287,7 +290,7 @@ function drawTownMap({
   app: PixiApp;
   root: PixiContainer;
   viewModel: MapViewModel;
-  buildTarget: PixiTownMapProps["buildTarget"];
+  placementPreview: PixiTownMapProps["placementPreview"];
   eventProgress: number;
   readOnly: boolean;
   selectedBuildingId: string;
@@ -320,9 +323,9 @@ function drawTownMap({
   drawTownIslandBase(pixi, groundLayer);
 
   for (const tile of viewModel.tiles) {
-    const isTarget = !readOnly && buildTarget ? tile.x === buildTarget.x && tile.y === buildTarget.y : false;
+    const isTarget = !readOnly && placementPreview ? isTileInsidePreview(tile.x, tile.y, placementPreview) : false;
     const groundKind = surfacePlan.ground.get(tileKey(tile.x, tile.y)) ?? "grass";
-    const tileGraphic = drawGroundTile(pixi, groundLayer, tile.x, tile.y, groundKind, isTarget);
+    const tileGraphic = drawGroundTile(pixi, groundLayer, tile.x, tile.y, groundKind, isTarget, placementPreview?.isValid ?? true);
 
     if (!readOnly && onTileSelect) {
       tileGraphic.eventMode = "static";
@@ -339,8 +342,8 @@ function drawTownMap({
   drawWorldEventPlaza(pixi, objectLayer, eventProgress, seasonalEventId);
   drawTownScenery(pixi, objectLayer, viewModel, surfacePlan);
 
-  if (!readOnly && buildTarget) {
-    drawBuildPreview(pixi, overlayLayer, buildTarget);
+  if (!readOnly && placementPreview) {
+    drawPlacementPreview(pixi, overlayLayer, placementPreview);
   }
 
   for (const building of [...viewModel.buildings].sort((a, b) => a.sortKey - b.sortKey)) {
@@ -354,10 +357,11 @@ function drawTownMap({
 
     const color = buildingColors[building.type];
     const isSelected = building.instanceId === selectedBuildingId;
+    const isColliding = placementPreview?.collidingBuildingIds.includes(building.instanceId) ?? false;
     const footprint = new pixi.Graphics()
       .poly(getFootprintPolygon(building.x, building.y, building.width, building.height))
-      .fill({ color, alpha: building.status === "building" ? 0.16 : 0.2 })
-      .stroke({ color: isSelected ? 0x5667a8 : statusColors[building.status], width: isSelected ? 4 : 2 });
+      .fill({ color, alpha: isColliding ? 0.32 : building.status === "building" ? 0.16 : 0.2 })
+      .stroke({ color: isColliding ? 0xb73535 : isSelected ? 0x5667a8 : statusColors[building.status], width: isColliding || isSelected ? 4 : 2 });
 
     const anchor = getFootprintCenter(building.x, building.y, building.width, building.height);
     const bodyWidth = Math.max(44, building.width * 42);
@@ -402,10 +406,10 @@ function drawTownMap({
       drawStatusBadge(pixi, buildingContainer, building.status, anchor.x, anchor.y - bodyHeight - 38);
     }
 
-    if (isSelected) {
+    if (isSelected || isColliding) {
       const selector = new pixi.Graphics()
         .poly(getFootprintPolygon(building.x, building.y, building.width, building.height))
-        .stroke({ color: 0xffffff, width: 2, alpha: 0.9 });
+        .stroke({ color: isColliding ? 0xffe1d6 : 0xffffff, width: 2, alpha: 0.9 });
       buildingContainer.addChild(selector);
       pulseTargets.push({
         node: selector,
@@ -582,14 +586,14 @@ function setupMapViewport(app: PixiApp, root: PixiContainer, onViewportChange: (
   };
 }
 
-function drawBuildPreview(pixi: PixiModule, layer: PixiContainer, buildTarget: NonNullable<PixiTownMapProps["buildTarget"]>) {
-  const master = BUILDING_MASTER[buildTarget.type];
-  const preview = new pixi.Graphics()
-    .poly(getFootprintPolygon(buildTarget.x, buildTarget.y, master.width, master.height))
-    .fill({ color: 0xd9c8ff, alpha: 0.28 })
-    .stroke({ color: 0x9a8bd6, width: 3, alpha: 0.9 });
+function drawPlacementPreview(pixi: PixiModule, layer: PixiContainer, preview: NonNullable<PixiTownMapProps["placementPreview"]>) {
+  const color = preview.isValid ? 0x4f8f68 : 0xb73535;
+  const footprint = new pixi.Graphics()
+    .poly(getFootprintPolygon(preview.x, preview.y, preview.width, preview.height))
+    .fill({ color, alpha: 0.24 })
+    .stroke({ color, width: 4, alpha: 0.92 });
 
-  layer.addChild(preview);
+  layer.addChild(footprint);
 }
 
 function drawTownIslandBase(pixi: PixiModule, layer: PixiContainer) {
@@ -656,13 +660,14 @@ function createTownSurfacePlan(viewModel: MapViewModel): TownSurfacePlan {
   return { ground, roads };
 }
 
-function drawGroundTile(pixi: PixiModule, layer: PixiContainer, x: number, y: number, kind: GroundKind, isTarget: boolean) {
+function drawGroundTile(pixi: PixiModule, layer: PixiContainer, x: number, y: number, kind: GroundKind, isTarget: boolean, isValidTarget: boolean) {
   const colors = groundColors[kind];
+  const targetColor = isValidTarget ? 0x4f8f68 : 0xb73535;
   const polygon = getTilePolygon(x, y);
   const tile = new pixi.Graphics()
     .poly(polygon)
-    .fill({ color: isTarget ? 0xcfeee3 : colors.fill })
-    .stroke({ color: isTarget ? 0x4f8f68 : colors.edge, width: isTarget ? 3 : 1 });
+    .fill({ color: isTarget ? (isValidTarget ? 0xcfeee3 : 0xf7d4cb) : colors.fill })
+    .stroke({ color: isTarget ? targetColor : colors.edge, width: isTarget ? 3 : 1 });
 
   layer.addChild(tile);
 
@@ -733,6 +738,14 @@ function getGroundKindForBuilding(type: BuildingType): GroundKind {
     return "town";
   }
   return "yard";
+}
+
+function isTileInsidePreview(
+  x: number,
+  y: number,
+  preview: Pick<NonNullable<PixiTownMapProps["placementPreview"]>, "x" | "y" | "width" | "height">
+) {
+  return x >= preview.x && x < preview.x + preview.width && y >= preview.y && y < preview.y + preview.height;
 }
 
 function drawRoadTile(pixi: PixiModule, layer: PixiContainer, x: number, y: number, roads: Set<string>) {
