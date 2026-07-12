@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BuildingType, GameState, PublicTownSnapshot } from "@/types/game";
 import { BUILDING_MASTER } from "@/constants/game-master";
 import { createMapViewModel, type BuildingView, type MapViewModel, type MapViewSource, type ResidentView, type TileView } from "@/lib/game-view/map-view-model";
-import { tileToIso } from "@/lib/game-view/iso-coordinate";
+import { getIsoSortKey, tileToIso } from "@/lib/game-view/iso-coordinate";
 
 type PixiModule = typeof import("pixi.js");
 type PixiApp = import("pixi.js").Application;
@@ -67,6 +67,7 @@ const mapAssets = {
   tree: "/assets/kenney/objects/tree.png",
   pine: "/assets/kenney/objects/treePine.png",
   smallTree: "/assets/kenney/objects/treeSmall_green1.png",
+  smallTreeLeafy: "/assets/kenney/objects/treeSmall_green2.png",
   smallTreeRound: "/assets/kenney/objects/treeSmall_green3.png",
   bush: "/assets/kenney/objects/bush1.png",
   bushSmall: "/assets/kenney/objects/bush2.png",
@@ -95,8 +96,10 @@ const mapAssets = {
   crate: "/assets/kenney/isometric/sacksCrate_S.png",
   smoke: "/assets/kenney/particles/smoke_04.png",
   dust: "/assets/kenney/particles/dirt_01.png",
+  light: "/assets/kenney/particles/light_03.png",
   sparkle: "/assets/kenney/particles/star_03.png"
 };
+const mapAssetSources = Array.from(new Set(Object.values(mapAssets)));
 
 const groundColors: Record<GroundKind, { fill: number; edge: number; accent: number }> = {
   grass: { fill: 0xcfe8b8, edge: 0x8fbd73, accent: 0xe4f3cf },
@@ -164,6 +167,12 @@ export function PixiTownMap({
         preference: "webgl"
       });
 
+      if (cancelled) {
+        app.destroy();
+        return;
+      }
+
+      await pixi.Assets.load(mapAssetSources);
       if (cancelled) {
         app.destroy();
         return;
@@ -308,6 +317,7 @@ function drawTownMap({
   root.addChild(environmentLayer, groundLayer, roadLayer, objectLayer, overlayLayer);
   drawEnvironment(pixi, environmentLayer, animationTargets, seasonalEventId);
   const surfacePlan = createTownSurfacePlan(viewModel);
+  drawTownIslandBase(pixi, groundLayer);
 
   for (const tile of viewModel.tiles) {
     const isTarget = !readOnly && buildTarget ? tile.x === buildTarget.x && tile.y === buildTarget.y : false;
@@ -327,6 +337,7 @@ function drawTownMap({
   }
 
   drawWorldEventPlaza(pixi, objectLayer, eventProgress, seasonalEventId);
+  drawTownScenery(pixi, objectLayer, viewModel, surfacePlan);
 
   if (!readOnly && buildTarget) {
     drawBuildPreview(pixi, overlayLayer, buildTarget);
@@ -579,6 +590,33 @@ function drawBuildPreview(pixi: PixiModule, layer: PixiContainer, buildTarget: N
     .stroke({ color: 0x9a8bd6, width: 3, alpha: 0.9 });
 
   layer.addChild(preview);
+}
+
+function drawTownIslandBase(pixi: PixiModule, layer: PixiContainer) {
+  const top = tileToIso(0, 0);
+  const right = tileToIso(10, 0);
+  const bottom = tileToIso(10, 10);
+  const left = tileToIso(0, 10);
+  const depth = 42;
+
+  const shadow = new pixi.Graphics()
+    .ellipse(0, bottom.y + depth + 14, 390, 46)
+    .fill({ color: 0x354233, alpha: 0.16 });
+  const rightFace = new pixi.Graphics()
+    .poly([right.x, right.y, bottom.x, bottom.y, bottom.x, bottom.y + depth, right.x, right.y + depth])
+    .fill({ color: 0x9d8055, alpha: 0.92 })
+    .stroke({ color: 0x7a633f, width: 1, alpha: 0.7 });
+  const leftFace = new pixi.Graphics()
+    .poly([left.x, left.y, bottom.x, bottom.y, bottom.x, bottom.y + depth, left.x, left.y + depth])
+    .fill({ color: 0x806d49, alpha: 0.94 })
+    .stroke({ color: 0x6a5736, width: 1, alpha: 0.72 });
+  const rim = new pixi.Graphics()
+    .poly([top.x, top.y, right.x, right.y, bottom.x, bottom.y, left.x, left.y])
+    .fill({ color: 0xdaf0c9, alpha: 0.42 })
+    .stroke({ color: 0x6fa65c, width: 5, alpha: 0.66 })
+    .stroke({ color: 0xf6ffe6, width: 2, alpha: 0.62 });
+
+  layer.addChild(shadow, rightFace, leftFace, rim);
 }
 
 function createTownSurfacePlan(viewModel: MapViewModel): TownSurfacePlan {
@@ -836,6 +874,112 @@ function drawEnvironment(pixi: PixiModule, layer: PixiContainer, animationTarget
   }
 }
 
+function drawTownScenery(
+  pixi: PixiModule,
+  layer: PixiContainer,
+  viewModel: MapViewModel,
+  surfacePlan: TownSurfacePlan
+) {
+  const occupied = getOccupiedTiles(viewModel);
+  const edgeDecorations = [
+    { src: mapAssets.pine, x: 0, y: 2, width: 42, height: 92, offsetX: -22, offsetY: 0 },
+    { src: mapAssets.smallTreeLeafy, x: 0, y: 6, width: 30, height: 66, offsetX: -18, offsetY: 5 },
+    { src: mapAssets.bushRound, x: 1, y: 8, width: 42, height: 30, offsetX: -18, offsetY: 8 },
+    { src: mapAssets.tree, x: 7, y: 0, width: 48, height: 104, offsetX: 18, offsetY: 4 },
+    { src: mapAssets.smallTreeRound, x: 9, y: 3, width: 28, height: 58, offsetX: 18, offsetY: 6 },
+    { src: mapAssets.bushSmall, x: 8, y: 7, width: 36, height: 24, offsetX: 20, offsetY: 10 },
+    { src: mapAssets.smallTree, x: 4, y: 9, width: 26, height: 56, offsetX: 12, offsetY: 12 }
+  ];
+
+  for (const decoration of edgeDecorations) {
+    if (occupied.has(tileKey(decoration.x, decoration.y))) {
+      continue;
+    }
+    addScenerySprite(
+      pixi,
+      layer,
+      decoration.src,
+      decoration.x,
+      decoration.y,
+      decoration.width,
+      decoration.height,
+      decoration.offsetX,
+      decoration.offsetY,
+      0.98
+    );
+  }
+
+  drawTownGate(pixi, layer);
+  drawRoadsideDetails(pixi, layer, surfacePlan.roads, occupied);
+}
+
+function drawTownGate(pixi: PixiModule, layer: PixiContainer) {
+  const center = tileToIso(4.6, 10.1);
+  const gate = new pixi.Container();
+  gate.zIndex = 11020;
+
+  const path = new pixi.Graphics()
+    .ellipse(center.x, center.y - 2, 72, 16)
+    .fill({ color: 0xe8d2a7, alpha: 0.86 })
+    .stroke({ color: 0x8d6b3c, width: 2, alpha: 0.42 });
+  const posts = new pixi.Graphics()
+    .roundRect(center.x - 46, center.y - 56, 8, 48, 3)
+    .fill({ color: 0x8a5f37 })
+    .roundRect(center.x + 38, center.y - 56, 8, 48, 3)
+    .fill({ color: 0x8a5f37 })
+    .roundRect(center.x - 54, center.y - 60, 108, 24, 5)
+    .fill({ color: 0xf2d7a3 })
+    .stroke({ color: 0x7d5b36, width: 2 });
+  const label = new pixi.Text({
+    text: "ねむり丘",
+    style: {
+      fill: 0x3c3124,
+      fontFamily: "Arial, sans-serif",
+      fontSize: 13,
+      fontWeight: "700"
+    }
+  });
+  label.anchor.set(0.5);
+  label.x = center.x;
+  label.y = center.y - 48;
+
+  gate.addChild(path, posts, label);
+  addMapSprite(pixi, gate, mapAssets.sparkle, center.x - 58, center.y - 68, 22, 22, 0.42);
+  addMapSprite(pixi, gate, mapAssets.light, center.x + 57, center.y - 64, 26, 26, 0.34);
+  layer.addChild(gate);
+}
+
+function drawRoadsideDetails(pixi: PixiModule, layer: PixiContainer, roads: Set<string>, occupied: Set<string>) {
+  const sortedRoads = Array.from(roads).sort();
+  for (let index = 0; index < sortedRoads.length; index += 1) {
+    if (index % 3 !== 1) {
+      continue;
+    }
+    const [x, y] = sortedRoads[index].split(":").map(Number);
+    const sideA = { x: x + 1, y };
+    const sideB = { x, y: y + 1 };
+    const side = isInsideMap(sideA.x, sideA.y) && !roads.has(tileKey(sideA.x, sideA.y)) && !occupied.has(tileKey(sideA.x, sideA.y)) ? sideA : sideB;
+    if (!isInsideMap(side.x, side.y) || roads.has(tileKey(side.x, side.y)) || occupied.has(tileKey(side.x, side.y))) {
+      continue;
+    }
+
+    const src = index % 2 === 0 ? mapAssets.bushSmall : mapAssets.bush;
+    addScenerySprite(pixi, layer, src, side.x, side.y, index % 2 === 0 ? 24 : 30, index % 2 === 0 ? 18 : 22, 0, 8, 0.88);
+  }
+}
+
+function getOccupiedTiles(viewModel: MapViewModel) {
+  const occupied = new Set<string>();
+  for (const building of viewModel.buildings) {
+    for (let dy = 0; dy < building.height; dy += 1) {
+      for (let dx = 0; dx < building.width; dx += 1) {
+        occupied.add(tileKey(building.x + dx, building.y + dy));
+      }
+    }
+  }
+  return occupied;
+}
+
 function drawWorldEventPlaza(pixi: PixiModule, layer: PixiContainer, progress: number, seasonalEventId: string) {
   if (progress <= 0) {
     return;
@@ -1078,6 +1222,32 @@ function addMapSprite(
   sprite.height = height;
   sprite.alpha = alpha;
   container.addChild(sprite);
+}
+
+function addScenerySprite(
+  pixi: PixiModule,
+  container: PixiContainer,
+  src: string,
+  tileX: number,
+  tileY: number,
+  width: number,
+  height: number,
+  offsetX = 0,
+  offsetY = 0,
+  alpha = 1
+) {
+  const center = getTileCenter(tileX, tileY);
+  const holder = new pixi.Container();
+  holder.zIndex = getIsoSortKey(tileX, tileY, 1);
+  const sprite = pixi.Sprite.from(src);
+  sprite.anchor.set(0.5, 1);
+  sprite.x = center.x + offsetX;
+  sprite.y = center.y + offsetY;
+  sprite.width = width;
+  sprite.height = height;
+  sprite.alpha = alpha;
+  holder.addChild(sprite);
+  container.addChild(holder);
 }
 
 function drawStatusBadge(pixi: PixiModule, container: PixiContainer, status: BuildingView["status"], x: number, y: number) {

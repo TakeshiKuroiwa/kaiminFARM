@@ -426,7 +426,8 @@ select {
   border-radius: 8px;
   padding: 16px;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.48), transparent 38%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.58), transparent 38%),
+    url("/assets/kenney/background-elements/groundLayer1.png") center bottom / 760px auto no-repeat,
     #dbeecf;
 }
 
@@ -439,9 +440,11 @@ select {
   border-radius: 8px;
   touch-action: none;
   background:
-    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.62), transparent 260px),
-    radial-gradient(circle at 18% 82%, rgba(217, 200, 255, 0.22), transparent 220px),
-    linear-gradient(180deg, #d9ecff 0%, #eaf5de 42%, #dbeecf 100%);
+    url("/assets/kenney/background-elements/cloudLayer1.png") center 24px / 620px auto no-repeat,
+    url("/assets/kenney/background-elements/hillsLarge.png") center bottom / 820px auto no-repeat,
+    radial-gradient(circle at 50% 18%, rgba(255, 255, 255, 0.68), transparent 260px),
+    linear-gradient(180deg, #cfe8ff 0%, #eaf5de 48%, #d4e8c0 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 253, 247, 0.72), inset 0 -28px 40px rgba(83, 119, 65, 0.12);
 }
 
 .pixi-town-canvas {
