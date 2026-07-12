@@ -325,6 +325,14 @@ select {
   justify-content: flex-end;
 }
 
+.mobile-menu-toggle {
+  display: none;
+}
+
+.mobile-menu-backdrop {
+  display: none;
+}
+
 .game-shell {
   width: min(1440px, 100%);
   margin: 0 auto;
@@ -1253,7 +1261,6 @@ select {
 @media (max-width: 640px) {
   .game-page {
     padding: 10px;
-    padding-bottom: 86px;
   }
 
   .game-hud {
@@ -1280,7 +1287,14 @@ select {
 
   .hud-actions {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .mobile-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
   }
 
   .map-header {
@@ -1318,19 +1332,53 @@ select {
 
   .action-rail {
     position: fixed;
-    left: 10px;
+    top: 12px;
     right: 10px;
-    bottom: 10px;
-    z-index: 10;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    padding: 6px;
-    box-shadow: 0 10px 32px rgba(37, 48, 37, 0.18);
+    bottom: auto;
+    left: auto;
+    z-index: 21;
+    width: min(248px, calc(100vw - 20px));
+    grid-template-columns: 1fr;
+    padding: 8px;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(calc(100% + 18px));
+    transition:
+      opacity 160ms ease,
+      transform 180ms ease;
+    box-shadow: 0 18px 46px rgba(37, 48, 37, 0.24);
+  }
+
+  .action-rail.open {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(0);
   }
 
   .rail-button {
-    min-height: 48px;
-    padding: 6px 4px;
-    font-size: 12px;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    min-height: 50px;
+    padding: 8px 10px;
+    justify-items: start;
+    text-align: left;
+    font-size: 14px;
+  }
+
+  .rail-button img {
+    width: 30px;
+    height: 30px;
+  }
+
+  .mobile-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: block;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    min-height: 0;
+    background: rgba(37, 48, 37, 0.28);
   }
 
   .compact-form {

@@ -56,6 +56,25 @@ const statusColors = {
   upgrading: 0x5667a8
 };
 
+const mapAssets = {
+  house: "/assets/kenney/objects/houseSmall1.png",
+  tree: "/assets/kenney/objects/tree.png",
+  pine: "/assets/kenney/objects/treePine.png",
+  smallTree: "/assets/kenney/objects/treeSmall_green1.png",
+  bush: "/assets/kenney/objects/bush1.png",
+  bushAlt: "/assets/kenney/objects/bushAlt1.png",
+  fence: "/assets/kenney/objects/fence.png",
+  planks: "/assets/kenney/isometric/planksHighOld_S.png",
+  ladder: "/assets/kenney/isometric/ladderStand_S.png",
+  brokenLadder: "/assets/kenney/isometric/ladderStandBroken_S.png",
+  dirt: "/assets/kenney/isometric/dirt_S.png",
+  sack: "/assets/kenney/isometric/sack_S.png",
+  crate: "/assets/kenney/isometric/sacksCrate_S.png",
+  smoke: "/assets/kenney/particles/smoke_04.png",
+  dust: "/assets/kenney/particles/dirt_01.png",
+  sparkle: "/assets/kenney/particles/star_03.png"
+};
+
 export function PixiTownMap({
   mapSource,
   buildTarget,
@@ -297,7 +316,7 @@ function drawTownMap({
     const bodyHeight = building.type === "townHall" ? 62 : building.type === "expeditionBase" ? 46 : 38;
     const body = new pixi.Graphics()
       .roundRect(anchor.x - bodyWidth / 2, anchor.y - bodyHeight - 4, bodyWidth, bodyHeight, 7)
-      .fill({ color: lightenColor(color), alpha: building.status === "building" ? 0.72 : 1 })
+      .fill({ color: lightenColor(color), alpha: building.status === "building" ? 0.32 : 0.42 })
       .stroke({ color: 0x6f624d, width: 2 });
 
     const roof = new pixi.Graphics()
@@ -311,10 +330,8 @@ function drawTownMap({
         anchor.x,
         anchor.y + 8
       ])
-      .fill({ color })
+      .fill({ color, alpha: building.status === "building" ? 0.38 : 0.58 })
       .stroke({ color: 0x6f624d, width: 2 });
-
-    drawBuildingDetails(pixi, buildingContainer, building, anchor, bodyWidth, bodyHeight);
 
     const label = new pixi.Text({
       text: BUILDING_MASTER[building.type].name,
@@ -352,7 +369,9 @@ function drawTownMap({
       });
     }
 
-    buildingContainer.addChild(footprint, body, roof, label, statusDot);
+    buildingContainer.addChild(footprint, body, roof);
+    drawBuildingDetails(pixi, buildingContainer, building, anchor, bodyWidth, bodyHeight);
+    buildingContainer.addChild(label, statusDot);
     objectLayer.addChild(buildingContainer);
   }
 
@@ -627,6 +646,9 @@ function drawBuildingDetails(
   bodyHeight: number
 ) {
   if (building.type === "townHall") {
+    addMapSprite(pixi, container, mapAssets.house, anchor.x - 22, anchor.y - 20, 66, 52);
+    addMapSprite(pixi, container, mapAssets.house, anchor.x + 22, anchor.y - 17, 58, 44);
+    addMapSprite(pixi, container, mapAssets.bushAlt, anchor.x, anchor.y + 5, 58, 20);
     container.addChild(
       new pixi.Graphics()
         .rect(anchor.x - 5, anchor.y - bodyHeight - 62, 10, 30)
@@ -643,7 +665,16 @@ function drawBuildingDetails(
     return;
   }
 
+  if (building.type === "house") {
+    addMapSprite(pixi, container, mapAssets.house, anchor.x, anchor.y + 2, 78, 56);
+    addMapSprite(pixi, container, mapAssets.smallTree, anchor.x - 28, anchor.y - 4, 24, 48);
+    addMapSprite(pixi, container, mapAssets.bush, anchor.x + 22, anchor.y + 4, 46, 22);
+    return;
+  }
+
   if (building.type === "farm") {
+    addMapSprite(pixi, container, mapAssets.dirt, anchor.x, anchor.y + 4, 74, 98);
+    addMapSprite(pixi, container, mapAssets.sack, anchor.x + 22, anchor.y + 3, 30, 48);
     for (let i = 0; i < 3; i += 1) {
       container.addChild(
         new pixi.Graphics()
@@ -655,12 +686,21 @@ function drawBuildingDetails(
   }
 
   if (building.type === "park") {
+    addMapSprite(pixi, container, mapAssets.tree, anchor.x - 12, anchor.y + 2, 58, 118);
+    addMapSprite(pixi, container, mapAssets.smallTree, anchor.x + 26, anchor.y + 4, 26, 54);
+    addMapSprite(pixi, container, mapAssets.bushAlt, anchor.x + 8, anchor.y + 8, 68, 24);
+    addMapSprite(pixi, container, mapAssets.fence, anchor.x - 26, anchor.y + 12, 56, 42);
     container.addChild(new pixi.Graphics().circle(anchor.x - 14, anchor.y - 28, 16).fill({ color: 0x6fb76a }).stroke({ color: 0x4f8f68, width: 2 }));
     container.addChild(new pixi.Graphics().rect(anchor.x - 18, anchor.y - 14, 8, 18).fill({ color: 0x9b6a3d }));
     return;
   }
 
   if (building.type === "mine") {
+    addMapSprite(pixi, container, mapAssets.dirt, anchor.x, anchor.y + 8, 78, 108);
+    addMapSprite(pixi, container, mapAssets.planks, anchor.x - 12, anchor.y + 6, 68, 112);
+    addMapSprite(pixi, container, mapAssets.ladder, anchor.x + 24, anchor.y - 2, 42, 92);
+    addMapSprite(pixi, container, mapAssets.dust, anchor.x - 24, anchor.y - 26, 42, 42, 0.5);
+    addMapSprite(pixi, container, mapAssets.sparkle, anchor.x + 17, anchor.y - 30, 26, 26, 0.72);
     container.addChild(
       new pixi.Graphics()
         .poly([anchor.x - 22, anchor.y - 8, anchor.x - 8, anchor.y - 34, anchor.x + 12, anchor.y - 12])
@@ -672,6 +712,9 @@ function drawBuildingDetails(
   }
 
   if (building.type === "lumberYard") {
+    addMapSprite(pixi, container, mapAssets.pine, anchor.x - 24, anchor.y + 2, 52, 112);
+    addMapSprite(pixi, container, mapAssets.tree, anchor.x + 22, anchor.y + 4, 44, 96);
+    addMapSprite(pixi, container, mapAssets.planks, anchor.x, anchor.y + 10, 58, 94);
     for (let i = 0; i < 3; i += 1) {
       container.addChild(new pixi.Graphics().roundRect(anchor.x - 22 + i * 13, anchor.y - 12 + i * 3, 26, 8, 4).fill({ color: 0x9b6a3d }));
     }
@@ -679,12 +722,17 @@ function drawBuildingDetails(
   }
 
   if (building.type === "warehouse") {
+    addMapSprite(pixi, container, mapAssets.crate, anchor.x - 12, anchor.y + 6, 60, 92);
+    addMapSprite(pixi, container, mapAssets.sack, anchor.x + 24, anchor.y + 8, 34, 52);
     container.addChild(new pixi.Graphics().rect(anchor.x - 20, anchor.y - 28, 14, 14).fill({ color: 0xc99961 }).stroke({ color: 0x8a745b, width: 1 }));
     container.addChild(new pixi.Graphics().rect(anchor.x - 4, anchor.y - 26, 14, 14).fill({ color: 0xe2c18a }).stroke({ color: 0x8a745b, width: 1 }));
     return;
   }
 
   if (building.type === "expeditionBase") {
+    addMapSprite(pixi, container, mapAssets.ladder, anchor.x - 28, anchor.y + 4, 42, 92);
+    addMapSprite(pixi, container, mapAssets.crate, anchor.x + 18, anchor.y + 8, 54, 84);
+    addMapSprite(pixi, container, mapAssets.pine, anchor.x + 44, anchor.y + 4, 36, 82);
     container.addChild(new pixi.Graphics().rect(anchor.x - 4, anchor.y - 56, 6, 32).fill({ color: 0x8a745b }));
     container.addChild(
       new pixi.Graphics()
@@ -692,6 +740,26 @@ function drawBuildingDetails(
         .fill({ color: 0x5667a8 })
     );
   }
+}
+
+function addMapSprite(
+  pixi: PixiModule,
+  container: PixiContainer,
+  src: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  alpha = 1
+) {
+  const sprite = pixi.Sprite.from(src);
+  sprite.anchor.set(0.5, 1);
+  sprite.x = x;
+  sprite.y = y;
+  sprite.width = width;
+  sprite.height = height;
+  sprite.alpha = alpha;
+  container.addChild(sprite);
 }
 
 function drawStatusBadge(pixi: PixiModule, container: PixiContainer, status: BuildingView["status"], x: number, y: number) {

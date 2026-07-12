@@ -220,6 +220,7 @@ export function GameDashboard() {
   const [showcaseEffect, setShowcaseEffect] = useState<ShowcaseEffect>(null);
   const [resourceShortage, setResourceShortage] = useState<ResourceShortageDetails | null>(null);
   const [pendingConversation, setPendingConversation] = useState<PendingConversation | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const previousResourcesRef = useRef<Resources | null>(null);
   const [resourceGains, setResourceGains] = useState<Partial<Resources>>({});
 
@@ -612,6 +613,16 @@ export function GameDashboard() {
           </div>
         </div>
         <div className="hud-actions">
+          <button
+            className="secondary mobile-menu-toggle"
+            type="button"
+            aria-expanded={mobileMenuOpen}
+            aria-controls="game-action-menu"
+            onClick={() => setMobileMenuOpen((open) => !open)}
+          >
+            <span aria-hidden="true">☰</span>
+            メニュー
+          </button>
           <button className="secondary" type="button" onClick={refreshState}>
             更新
           </button>
@@ -622,13 +633,17 @@ export function GameDashboard() {
       </header>
 
       <div className="game-shell">
-        <nav className="action-rail" aria-label="ゲーム操作">
+        {mobileMenuOpen ? <button className="mobile-menu-backdrop" type="button" aria-label="メニューを閉じる" onClick={() => setMobileMenuOpen(false)} /> : null}
+        <nav id="game-action-menu" className={mobileMenuOpen ? "action-rail open" : "action-rail"} aria-label="ゲーム操作">
           {(Object.keys(actionPanelLabels) as ActionPanel[]).map((panel) => (
             <button
               className={panel === activePanel ? "rail-button active" : "rail-button"}
               key={panel}
               type="button"
-              onClick={() => setActivePanel(panel)}
+              onClick={() => {
+                setActivePanel(panel);
+                setMobileMenuOpen(false);
+              }}
             >
               <img alt="" src={actionPanelIcons[panel]} />
               <span>{actionPanelLabels[panel]}</span>
