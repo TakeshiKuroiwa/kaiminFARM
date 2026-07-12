@@ -22,6 +22,11 @@ type MapViewport = {
   y: number;
   scale: number;
 };
+type GroundKind = "grass" | "path" | "farm" | "mine" | "park" | "town" | "yard";
+type TownSurfacePlan = {
+  ground: Map<string, GroundKind>;
+  roads: Set<string>;
+};
 
 type PixiTownMapProps = {
   mapSource: GameState | PublicTownSnapshot | MapViewSource;
@@ -58,21 +63,49 @@ const statusColors = {
 
 const mapAssets = {
   house: "/assets/kenney/objects/houseSmall1.png",
+  houseTall: "/assets/kenney/objects/houseSmall2.png",
   tree: "/assets/kenney/objects/tree.png",
   pine: "/assets/kenney/objects/treePine.png",
   smallTree: "/assets/kenney/objects/treeSmall_green1.png",
+  smallTreeRound: "/assets/kenney/objects/treeSmall_green3.png",
   bush: "/assets/kenney/objects/bush1.png",
+  bushSmall: "/assets/kenney/objects/bush2.png",
+  bushRound: "/assets/kenney/objects/bush3.png",
   bushAlt: "/assets/kenney/objects/bushAlt1.png",
   fence: "/assets/kenney/objects/fence.png",
+  roof: "/assets/kenney/isometric/roof_S.png",
+  roofSingle: "/assets/kenney/isometric/roofSingle_S.png",
+  roofCorner: "/assets/kenney/isometric/roofCorner_S.png",
+  woodWall: "/assets/kenney/isometric/woodWallEmpty_S.png",
+  woodDoor: "/assets/kenney/isometric/woodWallDoorClosed_S.png",
+  woodWindow: "/assets/kenney/isometric/woodWallWindow_S.png",
   planks: "/assets/kenney/isometric/planksHighOld_S.png",
   ladder: "/assets/kenney/isometric/ladderStand_S.png",
   brokenLadder: "/assets/kenney/isometric/ladderStandBroken_S.png",
   dirt: "/assets/kenney/isometric/dirt_S.png",
+  corn: "/assets/kenney/isometric/corn_S.png",
+  cornYoung: "/assets/kenney/isometric/cornYoung_S.png",
+  cornDouble: "/assets/kenney/isometric/cornDouble_S.png",
+  fenceLow: "/assets/kenney/isometric/fenceLow_S.png",
+  fenceLowBroken: "/assets/kenney/isometric/fenceLowBroken_S.png",
+  hay: "/assets/kenney/isometric/hayBales_S.png",
+  hayStack: "/assets/kenney/isometric/hayBalesStacked_S.png",
+  chimney: "/assets/kenney/isometric/chimneyBase_S.png",
   sack: "/assets/kenney/isometric/sack_S.png",
   crate: "/assets/kenney/isometric/sacksCrate_S.png",
   smoke: "/assets/kenney/particles/smoke_04.png",
   dust: "/assets/kenney/particles/dirt_01.png",
   sparkle: "/assets/kenney/particles/star_03.png"
+};
+
+const groundColors: Record<GroundKind, { fill: number; edge: number; accent: number }> = {
+  grass: { fill: 0xcfe8b8, edge: 0x8fbd73, accent: 0xe4f3cf },
+  path: { fill: 0xd9c193, edge: 0xb08b54, accent: 0xead8b2 },
+  farm: { fill: 0xb98758, edge: 0x8f623c, accent: 0xd1a06d },
+  mine: { fill: 0x9ea3aa, edge: 0x69717a, accent: 0xc2c6cc },
+  park: { fill: 0x98d38a, edge: 0x5d9a59, accent: 0xc7edb9 },
+  town: { fill: 0xd7c6ff, edge: 0x9a8bd6, accent: 0xf4f0ff },
+  yard: { fill: 0xceb183, edge: 0x997544, accent: 0xe5cfaa }
 };
 
 export function PixiTownMap({
@@ -267,26 +300,30 @@ function drawTownMap({
 
   const environmentLayer = new pixi.Container();
   const groundLayer = new pixi.Container();
+  const roadLayer = new pixi.Container();
   const objectLayer = new pixi.Container();
   const overlayLayer = new pixi.Container();
   objectLayer.sortableChildren = true;
 
-  root.addChild(environmentLayer, groundLayer, objectLayer, overlayLayer);
+  root.addChild(environmentLayer, groundLayer, roadLayer, objectLayer, overlayLayer);
   drawEnvironment(pixi, environmentLayer, animationTargets, seasonalEventId);
+  const surfacePlan = createTownSurfacePlan(viewModel);
 
   for (const tile of viewModel.tiles) {
     const isTarget = !readOnly && buildTarget ? tile.x === buildTarget.x && tile.y === buildTarget.y : false;
-    const tileGraphic = new pixi.Graphics()
-      .poly(getTilePolygon(tile.x, tile.y))
-      .fill({ color: isTarget ? 0xcfeee3 : getTileColor(tile.x, tile.y) })
-      .stroke({ color: isTarget ? 0x4f8f68 : 0x8fbd73, width: isTarget ? 3 : 1 });
+    const groundKind = surfacePlan.ground.get(tileKey(tile.x, tile.y)) ?? "grass";
+    const tileGraphic = drawGroundTile(pixi, groundLayer, tile.x, tile.y, groundKind, isTarget);
 
     if (!readOnly && onTileSelect) {
       tileGraphic.eventMode = "static";
       tileGraphic.cursor = "pointer";
       tileGraphic.on("pointertap", () => onTileSelect(tile));
     }
-    groundLayer.addChild(tileGraphic);
+  }
+
+  for (const roadKey of surfacePlan.roads) {
+    const [x, y] = roadKey.split(":").map(Number);
+    drawRoadTile(pixi, roadLayer, x, y, surfacePlan.roads);
   }
 
   drawWorldEventPlaza(pixi, objectLayer, eventProgress, seasonalEventId);
@@ -308,7 +345,7 @@ function drawTownMap({
     const isSelected = building.instanceId === selectedBuildingId;
     const footprint = new pixi.Graphics()
       .poly(getFootprintPolygon(building.x, building.y, building.width, building.height))
-      .fill({ color, alpha: building.status === "building" ? 0.45 : 0.72 })
+      .fill({ color, alpha: building.status === "building" ? 0.16 : 0.2 })
       .stroke({ color: isSelected ? 0x5667a8 : statusColors[building.status], width: isSelected ? 4 : 2 });
 
     const anchor = getFootprintCenter(building.x, building.y, building.width, building.height);
@@ -544,6 +581,222 @@ function drawBuildPreview(pixi: PixiModule, layer: PixiContainer, buildTarget: N
   layer.addChild(preview);
 }
 
+function createTownSurfacePlan(viewModel: MapViewModel): TownSurfacePlan {
+  const ground = new Map<string, GroundKind>();
+  const roads = new Set<string>();
+  const occupied = new Set<string>();
+
+  for (const tile of viewModel.tiles) {
+    ground.set(tileKey(tile.x, tile.y), "grass");
+  }
+
+  for (const building of viewModel.buildings) {
+    for (let dy = 0; dy < building.height; dy += 1) {
+      for (let dx = 0; dx < building.width; dx += 1) {
+        occupied.add(tileKey(building.x + dx, building.y + dy));
+      }
+    }
+  }
+
+  const townHall = viewModel.buildings.find((building) => building.type === "townHall");
+  const origin = townHall ? getBuildingApproachPoint(townHall, { x: 5, y: 5 }, occupied) : { x: 1, y: 1 };
+
+  for (const building of viewModel.buildings) {
+    const approach = getBuildingApproachPoint(building, origin, occupied);
+    markRoad(roads, origin, approach, occupied);
+  }
+
+  for (const building of viewModel.buildings) {
+    const kind = getGroundKindForBuilding(building.type);
+    for (let dy = 0; dy < building.height; dy += 1) {
+      for (let dx = 0; dx < building.width; dx += 1) {
+        ground.set(tileKey(building.x + dx, building.y + dy), kind);
+      }
+    }
+  }
+
+  return { ground, roads };
+}
+
+function drawGroundTile(pixi: PixiModule, layer: PixiContainer, x: number, y: number, kind: GroundKind, isTarget: boolean) {
+  const colors = groundColors[kind];
+  const polygon = getTilePolygon(x, y);
+  const tile = new pixi.Graphics()
+    .poly(polygon)
+    .fill({ color: isTarget ? 0xcfeee3 : colors.fill })
+    .stroke({ color: isTarget ? 0x4f8f68 : colors.edge, width: isTarget ? 3 : 1 });
+
+  layer.addChild(tile);
+
+  const center = getTileCenter(x, y);
+  if (kind === "path") {
+    tile
+      .moveTo(center.x - 30, center.y)
+      .lineTo(center.x + 30, center.y)
+      .stroke({ color: colors.accent, width: 5, alpha: 0.45 })
+      .circle(center.x - 14, center.y + 3, 2)
+      .fill({ color: 0xb08b54, alpha: 0.45 })
+      .circle(center.x + 18, center.y - 2, 2)
+      .fill({ color: 0xb08b54, alpha: 0.35 });
+  } else if (kind === "farm") {
+    for (let i = -2; i <= 2; i += 1) {
+      tile
+        .moveTo(center.x - 34 + i * 12, center.y - 1)
+        .lineTo(center.x + i * 12, center.y + 17)
+        .stroke({ color: colors.accent, width: 3, alpha: 0.48 });
+    }
+  } else if (kind === "mine") {
+    tile
+      .circle(center.x - 16, center.y + 2, 4)
+      .fill({ color: 0x747b84, alpha: 0.55 })
+      .circle(center.x + 14, center.y - 4, 3)
+      .fill({ color: 0x747b84, alpha: 0.42 })
+      .circle(center.x + 2, center.y + 10, 2)
+      .fill({ color: 0xd9c8ff, alpha: 0.7 });
+  } else if (kind === "park") {
+    tile
+      .circle(center.x - 20, center.y + 1, 3)
+      .fill({ color: colors.accent, alpha: 0.72 })
+      .circle(center.x + 20, center.y - 1, 3)
+      .fill({ color: colors.accent, alpha: 0.58 })
+      .ellipse(center.x, center.y + 8, 18, 4)
+      .fill({ color: 0x6fb76a, alpha: 0.18 });
+  } else if (kind === "town") {
+    tile
+      .moveTo(center.x - 28, center.y)
+      .lineTo(center.x + 28, center.y)
+      .stroke({ color: colors.accent, width: 4, alpha: 0.36 });
+  } else if (kind === "yard") {
+    tile
+      .rect(center.x - 18, center.y - 2, 36, 5)
+      .fill({ color: colors.accent, alpha: 0.28 });
+  } else {
+    tile
+      .circle(center.x - 24, center.y + 4, 2)
+      .fill({ color: colors.accent, alpha: 0.32 })
+      .circle(center.x + 16, center.y - 7, 2)
+      .fill({ color: colors.accent, alpha: 0.24 });
+  }
+
+  return tile;
+}
+
+function getGroundKindForBuilding(type: BuildingType): GroundKind {
+  if (type === "farm") {
+    return "farm";
+  }
+  if (type === "mine") {
+    return "mine";
+  }
+  if (type === "park") {
+    return "park";
+  }
+  if (type === "townHall" || type === "house") {
+    return "town";
+  }
+  return "yard";
+}
+
+function drawRoadTile(pixi: PixiModule, layer: PixiContainer, x: number, y: number, roads: Set<string>) {
+  const center = getTileCenter(x, y);
+  const road = new pixi.Graphics();
+  const directions = [
+    { dx: 1, dy: 0 },
+    { dx: -1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: 0, dy: -1 }
+  ];
+  const connectedDirections = directions.filter((direction) => roads.has(tileKey(x + direction.dx, y + direction.dy)));
+
+  for (const direction of connectedDirections) {
+    const neighbor = getTileCenter(x + direction.dx, y + direction.dy);
+    const endX = (center.x + neighbor.x) / 2;
+    const endY = (center.y + neighbor.y) / 2;
+    road.moveTo(center.x, center.y).lineTo(endX, endY).stroke({ color: 0x8d6b3c, width: 18, alpha: 0.52 });
+    road.moveTo(center.x, center.y).lineTo(endX, endY).stroke({ color: 0xe8d2a7, width: 12, alpha: 0.94 });
+  }
+
+  road
+    .ellipse(center.x, center.y, connectedDirections.length >= 3 ? 18 : 15, 8)
+    .fill({ color: 0xe8d2a7, alpha: 0.96 })
+    .ellipse(center.x, center.y, connectedDirections.length >= 3 ? 21 : 17, 10)
+    .stroke({ color: 0x8d6b3c, width: 2, alpha: 0.38 });
+
+  const pebbleColor = 0xb08b54;
+  road
+    .circle(center.x - 8, center.y + 1, 1.8)
+    .fill({ color: pebbleColor, alpha: 0.42 })
+    .circle(center.x + 9, center.y - 2, 1.6)
+    .fill({ color: pebbleColor, alpha: 0.34 });
+
+  if (connectedDirections.length === 0) {
+    road
+      .circle(center.x, center.y, 5)
+      .fill({ color: 0xf0dfbd, alpha: 0.9 })
+      .circle(center.x - 9, center.y + 4, 2)
+      .fill({ color: pebbleColor, alpha: 0.35 });
+  }
+
+  layer.addChild(road);
+}
+
+function markRoad(roads: Set<string>, from: { x: number; y: number }, to: { x: number; y: number }, occupied: Set<string>) {
+  let x = from.x;
+  let y = from.y;
+  addRoadTile(roads, x, y, occupied);
+  while (x !== to.x) {
+    x += x < to.x ? 1 : -1;
+    addRoadTile(roads, x, y, occupied);
+  }
+  while (y !== to.y) {
+    y += y < to.y ? 1 : -1;
+    addRoadTile(roads, x, y, occupied);
+  }
+}
+
+function addRoadTile(roads: Set<string>, x: number, y: number, occupied: Set<string>) {
+  if (!isInsideMap(x, y) || occupied.has(tileKey(x, y))) {
+    return;
+  }
+  roads.add(tileKey(x, y));
+}
+
+function getBuildingApproachPoint(building: BuildingView, origin: { x: number; y: number }, occupied: Set<string>) {
+  const candidates: { x: number; y: number }[] = [];
+
+  for (let dx = 0; dx < building.width; dx += 1) {
+    candidates.push({ x: building.x + dx, y: building.y - 1 });
+    candidates.push({ x: building.x + dx, y: building.y + building.height });
+  }
+
+  for (let dy = 0; dy < building.height; dy += 1) {
+    candidates.push({ x: building.x - 1, y: building.y + dy });
+    candidates.push({ x: building.x + building.width, y: building.y + dy });
+  }
+
+  const validCandidates = candidates.filter((candidate) => isInsideMap(candidate.x, candidate.y) && !occupied.has(tileKey(candidate.x, candidate.y)));
+  if (validCandidates.length === 0) {
+    return getBuildingGridCenter(building);
+  }
+
+  return validCandidates.sort((a, b) => getManhattanDistance(a, origin) - getManhattanDistance(b, origin))[0];
+}
+
+function getManhattanDistance(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+}
+
+function isInsideMap(x: number, y: number) {
+  return x >= 0 && x < 10 && y >= 0 && y < 10;
+}
+
+function getBuildingGridCenter(building: Pick<BuildingView, "x" | "y" | "width" | "height">) {
+  return {
+    x: Math.min(9, Math.max(0, building.x + Math.floor((building.width - 1) / 2))),
+    y: Math.min(9, Math.max(0, building.y + Math.floor((building.height - 1) / 2)))
+  };
+}
+
 function drawEnvironment(pixi: PixiModule, layer: PixiContainer, animationTargets: AnimationTarget[], seasonalEventId: string) {
   const cloudPositions = [
     { x: -280, y: 42, width: 86, phase: 0 },
@@ -645,10 +898,20 @@ function drawBuildingDetails(
   bodyWidth: number,
   bodyHeight: number
 ) {
+  const level = Math.max(1, building.level);
+
   if (building.type === "townHall") {
     addMapSprite(pixi, container, mapAssets.house, anchor.x - 22, anchor.y - 20, 66, 52);
-    addMapSprite(pixi, container, mapAssets.house, anchor.x + 22, anchor.y - 17, 58, 44);
+    addMapSprite(pixi, container, level >= 2 ? mapAssets.houseTall : mapAssets.house, anchor.x + 22, anchor.y - 17, 58, 52);
     addMapSprite(pixi, container, mapAssets.bushAlt, anchor.x, anchor.y + 5, 58, 20);
+    if (level >= 2) {
+      addMapSprite(pixi, container, mapAssets.fenceLow, anchor.x - 36, anchor.y + 14, 48, 76);
+      addMapSprite(pixi, container, mapAssets.chimney, anchor.x + 2, anchor.y - 43, 24, 54);
+    }
+    if (level >= 3) {
+      addMapSprite(pixi, container, mapAssets.sparkle, anchor.x + 38, anchor.y - 54, 28, 28, 0.72);
+      addMapSprite(pixi, container, mapAssets.bushRound, anchor.x + 44, anchor.y + 8, 34, 30);
+    }
     container.addChild(
       new pixi.Graphics()
         .rect(anchor.x - 5, anchor.y - bodyHeight - 62, 10, 30)
@@ -666,15 +929,32 @@ function drawBuildingDetails(
   }
 
   if (building.type === "house") {
-    addMapSprite(pixi, container, mapAssets.house, anchor.x, anchor.y + 2, 78, 56);
+    addMapSprite(pixi, container, level >= 2 ? mapAssets.houseTall : mapAssets.house, anchor.x, anchor.y + 2, 78, level >= 2 ? 66 : 56);
+    if (level >= 2) {
+      addMapSprite(pixi, container, mapAssets.chimney, anchor.x + 16, anchor.y - 31, 18, 38);
+      addMapSprite(pixi, container, mapAssets.fenceLow, anchor.x - 22, anchor.y + 15, 42, 62);
+    }
+    if (level >= 3) {
+      addMapSprite(pixi, container, mapAssets.house, anchor.x + 28, anchor.y + 4, 42, 32);
+      addMapSprite(pixi, container, mapAssets.sparkle, anchor.x - 8, anchor.y - 42, 24, 24, 0.52);
+    }
     addMapSprite(pixi, container, mapAssets.smallTree, anchor.x - 28, anchor.y - 4, 24, 48);
-    addMapSprite(pixi, container, mapAssets.bush, anchor.x + 22, anchor.y + 4, 46, 22);
+    addMapSprite(pixi, container, level >= 3 ? mapAssets.bushRound : mapAssets.bush, anchor.x + 22, anchor.y + 4, 46, 26);
     return;
   }
 
   if (building.type === "farm") {
     addMapSprite(pixi, container, mapAssets.dirt, anchor.x, anchor.y + 4, 74, 98);
     addMapSprite(pixi, container, mapAssets.sack, anchor.x + 22, anchor.y + 3, 30, 48);
+    addMapSprite(pixi, container, level >= 2 ? mapAssets.corn : mapAssets.cornYoung, anchor.x - 20, anchor.y + 5, 28, 68);
+    addMapSprite(pixi, container, level >= 3 ? mapAssets.cornDouble : mapAssets.cornYoung, anchor.x + 3, anchor.y + 5, 30, 70);
+    if (level >= 2) {
+      addMapSprite(pixi, container, mapAssets.fenceLow, anchor.x - 34, anchor.y + 14, 44, 66);
+    }
+    if (level >= 3) {
+      addMapSprite(pixi, container, mapAssets.hay, anchor.x + 35, anchor.y + 10, 36, 52);
+      addMapSprite(pixi, container, mapAssets.sparkle, anchor.x + 18, anchor.y - 36, 22, 22, 0.56);
+    }
     for (let i = 0; i < 3; i += 1) {
       container.addChild(
         new pixi.Graphics()
@@ -687,9 +967,16 @@ function drawBuildingDetails(
 
   if (building.type === "park") {
     addMapSprite(pixi, container, mapAssets.tree, anchor.x - 12, anchor.y + 2, 58, 118);
-    addMapSprite(pixi, container, mapAssets.smallTree, anchor.x + 26, anchor.y + 4, 26, 54);
-    addMapSprite(pixi, container, mapAssets.bushAlt, anchor.x + 8, anchor.y + 8, 68, 24);
+    addMapSprite(pixi, container, level >= 2 ? mapAssets.smallTreeRound : mapAssets.smallTree, anchor.x + 26, anchor.y + 4, 26, 54);
+    addMapSprite(pixi, container, level >= 3 ? mapAssets.bushRound : mapAssets.bushAlt, anchor.x + 8, anchor.y + 8, 68, 28);
     addMapSprite(pixi, container, mapAssets.fence, anchor.x - 26, anchor.y + 12, 56, 42);
+    if (level >= 2) {
+      addMapSprite(pixi, container, mapAssets.fenceLow, anchor.x + 34, anchor.y + 15, 42, 58);
+    }
+    if (level >= 3) {
+      addMapSprite(pixi, container, mapAssets.sparkle, anchor.x - 30, anchor.y - 58, 26, 26, 0.6);
+      addMapSprite(pixi, container, mapAssets.sparkle, anchor.x + 28, anchor.y - 48, 20, 20, 0.5);
+    }
     container.addChild(new pixi.Graphics().circle(anchor.x - 14, anchor.y - 28, 16).fill({ color: 0x6fb76a }).stroke({ color: 0x4f8f68, width: 2 }));
     container.addChild(new pixi.Graphics().rect(anchor.x - 18, anchor.y - 14, 8, 18).fill({ color: 0x9b6a3d }));
     return;
@@ -698,7 +985,15 @@ function drawBuildingDetails(
   if (building.type === "mine") {
     addMapSprite(pixi, container, mapAssets.dirt, anchor.x, anchor.y + 8, 78, 108);
     addMapSprite(pixi, container, mapAssets.planks, anchor.x - 12, anchor.y + 6, 68, 112);
-    addMapSprite(pixi, container, mapAssets.ladder, anchor.x + 24, anchor.y - 2, 42, 92);
+    addMapSprite(pixi, container, level >= 2 ? mapAssets.ladder : mapAssets.brokenLadder, anchor.x + 24, anchor.y - 2, 42, 92);
+    if (level >= 2) {
+      addMapSprite(pixi, container, mapAssets.crate, anchor.x + 36, anchor.y + 13, 36, 58);
+      addMapSprite(pixi, container, mapAssets.fenceLowBroken, anchor.x - 39, anchor.y + 18, 38, 62);
+    }
+    if (level >= 3) {
+      addMapSprite(pixi, container, mapAssets.smoke, anchor.x - 2, anchor.y - 52, 44, 44, 0.46);
+      addMapSprite(pixi, container, mapAssets.sparkle, anchor.x + 26, anchor.y - 38, 30, 30, 0.82);
+    }
     addMapSprite(pixi, container, mapAssets.dust, anchor.x - 24, anchor.y - 26, 42, 42, 0.5);
     addMapSprite(pixi, container, mapAssets.sparkle, anchor.x + 17, anchor.y - 30, 26, 26, 0.72);
     container.addChild(
@@ -713,8 +1008,15 @@ function drawBuildingDetails(
 
   if (building.type === "lumberYard") {
     addMapSprite(pixi, container, mapAssets.pine, anchor.x - 24, anchor.y + 2, 52, 112);
-    addMapSprite(pixi, container, mapAssets.tree, anchor.x + 22, anchor.y + 4, 44, 96);
+    addMapSprite(pixi, container, level >= 2 ? mapAssets.tree : mapAssets.smallTreeRound, anchor.x + 22, anchor.y + 4, 44, 96);
     addMapSprite(pixi, container, mapAssets.planks, anchor.x, anchor.y + 10, 58, 94);
+    if (level >= 2) {
+      addMapSprite(pixi, container, mapAssets.crate, anchor.x + 34, anchor.y + 13, 34, 52);
+    }
+    if (level >= 3) {
+      addMapSprite(pixi, container, mapAssets.house, anchor.x - 38, anchor.y + 10, 42, 30);
+      addMapSprite(pixi, container, mapAssets.sparkle, anchor.x + 6, anchor.y - 44, 22, 22, 0.42);
+    }
     for (let i = 0; i < 3; i += 1) {
       container.addChild(new pixi.Graphics().roundRect(anchor.x - 22 + i * 13, anchor.y - 12 + i * 3, 26, 8, 4).fill({ color: 0x9b6a3d }));
     }
@@ -724,6 +1026,14 @@ function drawBuildingDetails(
   if (building.type === "warehouse") {
     addMapSprite(pixi, container, mapAssets.crate, anchor.x - 12, anchor.y + 6, 60, 92);
     addMapSprite(pixi, container, mapAssets.sack, anchor.x + 24, anchor.y + 8, 34, 52);
+    if (level >= 2) {
+      addMapSprite(pixi, container, mapAssets.hayStack, anchor.x - 38, anchor.y + 10, 38, 58);
+      addMapSprite(pixi, container, mapAssets.planks, anchor.x + 22, anchor.y + 8, 46, 76);
+    }
+    if (level >= 3) {
+      addMapSprite(pixi, container, mapAssets.houseTall, anchor.x + 42, anchor.y + 10, 44, 42);
+      addMapSprite(pixi, container, mapAssets.sparkle, anchor.x - 4, anchor.y - 46, 22, 22, 0.44);
+    }
     container.addChild(new pixi.Graphics().rect(anchor.x - 20, anchor.y - 28, 14, 14).fill({ color: 0xc99961 }).stroke({ color: 0x8a745b, width: 1 }));
     container.addChild(new pixi.Graphics().rect(anchor.x - 4, anchor.y - 26, 14, 14).fill({ color: 0xe2c18a }).stroke({ color: 0x8a745b, width: 1 }));
     return;
@@ -732,7 +1042,15 @@ function drawBuildingDetails(
   if (building.type === "expeditionBase") {
     addMapSprite(pixi, container, mapAssets.ladder, anchor.x - 28, anchor.y + 4, 42, 92);
     addMapSprite(pixi, container, mapAssets.crate, anchor.x + 18, anchor.y + 8, 54, 84);
-    addMapSprite(pixi, container, mapAssets.pine, anchor.x + 44, anchor.y + 4, 36, 82);
+    addMapSprite(pixi, container, level >= 2 ? mapAssets.pine : mapAssets.smallTreeRound, anchor.x + 44, anchor.y + 4, 36, 82);
+    if (level >= 2) {
+      addMapSprite(pixi, container, mapAssets.fenceLow, anchor.x - 52, anchor.y + 17, 42, 64);
+      addMapSprite(pixi, container, mapAssets.sack, anchor.x + 50, anchor.y + 14, 28, 42);
+    }
+    if (level >= 3) {
+      addMapSprite(pixi, container, mapAssets.house, anchor.x - 4, anchor.y + 8, 52, 38);
+      addMapSprite(pixi, container, mapAssets.sparkle, anchor.x + 34, anchor.y - 52, 26, 26, 0.62);
+    }
     container.addChild(new pixi.Graphics().rect(anchor.x - 4, anchor.y - 56, 6, 32).fill({ color: 0x8a745b }));
     container.addChild(
       new pixi.Graphics()
@@ -808,14 +1126,18 @@ function getFootprintCenter(x: number, y: number, width: number, height: number)
   };
 }
 
-function getTileColor(x: number, y: number) {
-  if ((x + y) % 5 === 0) {
-    return 0xaed986;
-  }
-  if ((x * 3 + y) % 7 === 0) {
-    return 0xc2e29b;
-  }
-  return 0xb7de8a;
+function getTileCenter(x: number, y: number) {
+  const top = tileToIso(x, y);
+  const bottom = tileToIso(x + 1, y + 1);
+
+  return {
+    x: (top.x + bottom.x) / 2,
+    y: (top.y + bottom.y) / 2
+  };
+}
+
+function tileKey(x: number, y: number) {
+  return `${x}:${y}`;
 }
 
 function lightenColor(color: number) {
