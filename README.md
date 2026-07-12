@@ -84,6 +84,19 @@
 - Vercel
 - Redis
 
+## 画像素材
+
+ゲーム画面のUI、探索演出、世界イベント演出、資源アイコン、背景装飾にはKenneyのCC0素材を使用しています。
+
+使用素材パック:
+
+- Kenney Isometric Miniature Farm
+- Kenney Pixel UI Pack
+- Kenney Particle Pack
+- Kenney Background Elements Remastered
+
+リポジトリ直下に展開した `kenney*` 原本フォルダは `.gitignore` で除外しています。アプリで実際に参照する素材のみ `public/assets/kenney/` に配置しています。Kenney素材はCC0ですが、出典管理のため詳細は [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) に記載しています。
+
 ## Redis環境変数
 
 Vercelに連携するRedisでは、以下の環境変数名を使用します。

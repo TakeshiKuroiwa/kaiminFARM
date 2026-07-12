@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
       return fail("BAD_REQUEST", "入力内容を確認してください。", 400);
     }
 
-    const result = await talkToResident(session.playerId, parsed.data.residentId);
+    const result = await talkToResident(session.playerId, parsed.data.residentId, parsed.data.choiceId, parsed.data.eventId);
     return ok(result);
   } catch (error) {
     if (error instanceof ResidentActionError) {

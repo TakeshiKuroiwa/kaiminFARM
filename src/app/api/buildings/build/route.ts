@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     return ok(gameState);
   } catch (error) {
     if (error instanceof GameActionError) {
-      return fail(error.code, error.message, error.status);
+      return fail(error.code, error.message, error.status, undefined, error.details);
     }
     return fail("UNAUTHORIZED", "ログインが必要です。", 401);
   }

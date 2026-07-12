@@ -17,6 +17,11 @@ type AnimationTarget = {
   amplitude: number;
   speed: number;
 };
+type MapViewport = {
+  x: number;
+  y: number;
+  scale: number;
+};
 
 type PixiTownMapProps = {
   mapSource: GameState | PublicTownSnapshot | MapViewSource;
@@ -66,9 +71,11 @@ export function PixiTownMap({
   const pixiRef = useRef<PixiModule | null>(null);
   const appRef = useRef<PixiApp | null>(null);
   const rootRef = useRef<PixiContainer | null>(null);
+  const viewportRef = useRef<MapViewport | null>(null);
   const animationCleanupRef = useRef<(() => void) | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [viewportResetCount, setViewportResetCount] = useState(0);
   const viewModel = useMemo(() => createMapViewModel(mapSource), [mapSource]);
 
   useEffect(() => {
@@ -158,7 +165,11 @@ export function PixiTownMap({
       selectedBuildingId: selectedBuildingId ?? "",
       onTileSelect,
       onBuildingSelect,
-      onResidentSelect
+      onResidentSelect,
+      viewport: viewportRef.current,
+      onViewportChange: (viewport) => {
+        viewportRef.current = viewport;
+      }
     });
   }, [
     buildTarget,
@@ -171,12 +182,25 @@ export function PixiTownMap({
     reducedMotion,
     seasonalEventId,
     selectedBuildingId,
+    viewportResetCount,
     viewModel
   ]);
 
   return (
     <div className={readOnly ? "pixi-town-map readonly" : "pixi-town-map"} ref={hostRef}>
       {!isReady ? <div className="pixi-loading">マップを準備中</div> : null}
+      {!readOnly ? (
+        <button
+          className="map-reset-button"
+          type="button"
+          onClick={() => {
+            viewportRef.current = null;
+            setViewportResetCount((count) => count + 1);
+          }}
+        >
+          全体
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -194,7 +218,9 @@ function drawTownMap({
   seasonalEventId,
   onTileSelect,
   onBuildingSelect,
-  onResidentSelect
+  onResidentSelect,
+  viewport,
+  onViewportChange
 }: {
   pixi: PixiModule;
   app: PixiApp;
@@ -209,10 +235,14 @@ function drawTownMap({
   onTileSelect?: PixiTownMapProps["onTileSelect"];
   onBuildingSelect?: PixiTownMapProps["onBuildingSelect"];
   onResidentSelect?: PixiTownMapProps["onResidentSelect"];
+  viewport: MapViewport | null;
+  onViewportChange: (viewport: MapViewport) => void;
 }): () => void {
   root.removeChildren();
-  root.x = app.renderer.width / 2;
-  root.y = 56;
+  const initialViewport = viewport ?? getDefaultViewport(app);
+  root.x = initialViewport.x;
+  root.y = initialViewport.y;
+  root.scale.set(initialViewport.scale);
   const animationTargets: AnimationTarget[] = [];
   const pulseTargets: AnimationTarget[] = [];
 
@@ -370,8 +400,10 @@ function drawTownMap({
     objectLayer.addChild(residentContainer);
   }
 
+  const viewportCleanup = readOnly ? () => undefined : setupMapViewport(app, root, onViewportChange);
+
   if (reducedMotion) {
-    return () => undefined;
+    return viewportCleanup;
   }
 
   const tick = () => {
@@ -388,7 +420,99 @@ function drawTownMap({
   };
   app.ticker.add(tick);
 
-  return () => app.ticker.remove(tick);
+  return () => {
+    app.ticker.remove(tick);
+    viewportCleanup();
+  };
+}
+
+function getDefaultViewport(app: PixiApp): MapViewport {
+  const width = app.renderer.width;
+  const height = app.renderer.height;
+  const scale = Math.max(0.34, Math.min(1, Math.min((width - 32) / 980, (height - 32) / 620)));
+  return {
+    x: width / 2,
+    y: Math.max(34, height * 0.08),
+    scale
+  };
+}
+
+function setupMapViewport(app: PixiApp, root: PixiContainer, onViewportChange: (viewport: MapViewport) => void) {
+  const canvas = app.canvas;
+  const pointers = new Map<number, { x: number; y: number }>();
+  let lastPan: { x: number; y: number } | null = null;
+  let lastPinchDistance = 0;
+  const clampScale = (scale: number) => Math.max(0.32, Math.min(1.4, scale));
+  const commit = () => onViewportChange({ x: root.x, y: root.y, scale: root.scale.x });
+
+  const onPointerDown = (event: PointerEvent) => {
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 1) {
+      lastPan = { x: event.clientX, y: event.clientY };
+    }
+    if (pointers.size === 2) {
+      const [first, second] = Array.from(pointers.values());
+      lastPinchDistance = Math.hypot(first.x - second.x, first.y - second.y);
+    }
+    canvas.setPointerCapture?.(event.pointerId);
+  };
+
+  const onPointerMove = (event: PointerEvent) => {
+    if (!pointers.has(event.pointerId)) {
+      return;
+    }
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+    if (pointers.size >= 2) {
+      const [first, second] = Array.from(pointers.values());
+      const distance = Math.hypot(first.x - second.x, first.y - second.y);
+      if (lastPinchDistance > 0) {
+        root.scale.set(clampScale(root.scale.x * (distance / lastPinchDistance)));
+        commit();
+      }
+      lastPinchDistance = distance;
+      return;
+    }
+
+    if (lastPan) {
+      root.x += event.clientX - lastPan.x;
+      root.y += event.clientY - lastPan.y;
+      lastPan = { x: event.clientX, y: event.clientY };
+      commit();
+    }
+  };
+
+  const onPointerUp = (event: PointerEvent) => {
+    pointers.delete(event.pointerId);
+    if (pointers.size === 0) {
+      lastPan = null;
+      lastPinchDistance = 0;
+      return;
+    }
+    const [remaining] = Array.from(pointers.values());
+    lastPan = remaining;
+    lastPinchDistance = 0;
+  };
+
+  const onWheel = (event: WheelEvent) => {
+    event.preventDefault();
+    root.scale.set(clampScale(root.scale.x * (event.deltaY > 0 ? 0.92 : 1.08)));
+    commit();
+  };
+
+  canvas.addEventListener("pointerdown", onPointerDown);
+  canvas.addEventListener("pointermove", onPointerMove);
+  canvas.addEventListener("pointerup", onPointerUp);
+  canvas.addEventListener("pointercancel", onPointerUp);
+  canvas.addEventListener("wheel", onWheel, { passive: false });
+
+  return () => {
+    canvas.removeEventListener("pointerdown", onPointerDown);
+    canvas.removeEventListener("pointermove", onPointerMove);
+    canvas.removeEventListener("pointerup", onPointerUp);
+    canvas.removeEventListener("pointercancel", onPointerUp);
+    canvas.removeEventListener("wheel", onWheel);
+  };
 }
 
 function drawBuildPreview(pixi: PixiModule, layer: PixiContainer, buildTarget: NonNullable<PixiTownMapProps["buildTarget"]>) {

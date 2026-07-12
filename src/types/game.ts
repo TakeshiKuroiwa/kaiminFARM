@@ -63,6 +63,19 @@ export type Resident = {
   joinedAt: UnixTimeMs;
 };
 
+export type ResidentTalkChoice = {
+  choiceId: "a" | "b";
+  label: string;
+  response: string;
+  friendshipGained: number;
+};
+
+export type ResidentTalkEvent = {
+  eventId: string;
+  prompt: string;
+  choices: [ResidentTalkChoice, ResidentTalkChoice];
+};
+
 export type Expedition = {
   expeditionId: string;
   areaId: "nearbyWoods" | "sleepyForest";

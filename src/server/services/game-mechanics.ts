@@ -40,6 +40,22 @@ export function hasEnoughResources(resources: Resources, cost: Partial<Resources
   });
 }
 
+export function getMissingResources(resources: Resources, cost: Partial<Resources>): Partial<Record<ResourceId, { required: number; current: number; missing: number }>> {
+  const missing: Partial<Record<ResourceId, { required: number; current: number; missing: number }>> = {};
+  for (const resourceId of Object.keys(cost) as ResourceId[]) {
+    const required = cost[resourceId] ?? 0;
+    const current = resources[resourceId];
+    if (required > current) {
+      missing[resourceId] = {
+        required,
+        current,
+        missing: required - current
+      };
+    }
+  }
+  return missing;
+}
+
 export function multiplyCost(cost: Partial<Resources>, multiplier: number): Partial<Resources> {
   const nextCost: Partial<Resources> = {};
   for (const resourceId of Object.keys(cost) as ResourceId[]) {

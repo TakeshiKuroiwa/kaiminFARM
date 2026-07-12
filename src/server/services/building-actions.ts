@@ -13,6 +13,7 @@ import { getSettledGameState } from "./game-state";
 import {
   canPlaceBuilding,
   canUpgrade,
+  getMissingResources,
   getUpgradeCost,
   getUpgradeSeconds,
   hasEnoughResources,
@@ -45,7 +46,8 @@ export class GameActionError extends Error {
   constructor(
     public code: string,
     message: string,
-    public status = 400
+    public status = 400,
+    public details?: unknown
   ) {
     super(message);
   }
@@ -62,7 +64,10 @@ export async function buildBuilding({ playerId, requestId, buildingType, x, y }:
 
   const master = BUILDING_MASTER[buildingType];
   if (!hasEnoughResources(resources, master.cost)) {
-    throw new GameActionError("INSUFFICIENT_RESOURCES", "資源が足りません。", 400);
+    throw new GameActionError("INSUFFICIENT_RESOURCES", "建設に必要な資源が足りません。", 400, {
+      cost: master.cost,
+      missingResources: getMissingResources(resources, master.cost)
+    });
   }
 
   const now = Date.now();
@@ -110,7 +115,10 @@ export async function upgradeBuilding({ playerId, requestId, instanceId }: Upgra
 
   const cost = getUpgradeCost(building);
   if (!hasEnoughResources(resources, cost)) {
-    throw new GameActionError("INSUFFICIENT_RESOURCES", "資源が足りません。", 400);
+    throw new GameActionError("INSUFFICIENT_RESOURCES", "強化に必要な資源が足りません。", 400, {
+      cost,
+      missingResources: getMissingResources(resources, cost)
+    });
   }
 
   const now = Date.now();

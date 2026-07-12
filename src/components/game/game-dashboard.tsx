@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+/* eslint-disable @next/next/no-img-element */
+
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PixiTownMap } from "@/components/game/pixi-town-map";
 import {
   BUILDABLE_BUILDING_TYPES,
   BUILDING_MASTER,
   EXPEDITION_AREAS,
-  MAX_BUILDING_LEVEL
+  MAX_BUILDING_LEVEL,
+  RESIDENT_MASTER
 } from "@/constants/game-master";
 import type {
   BuildingInstance,
@@ -16,6 +19,7 @@ import type {
   GameState,
   PublicTownSnapshot,
   Resident,
+  ResidentTalkEvent,
   ResourceId,
   Resources
 } from "@/types/game";
@@ -29,7 +33,9 @@ type GameStateResult =
   | {
       ok: false;
       error: {
+        code?: string;
         message: string;
+        details?: ResourceShortageDetails;
       };
     };
 
@@ -38,8 +44,11 @@ type TalkResult =
       ok: true;
       data: {
         resident: Resident;
+        event: ResidentTalkEvent;
+        selectedChoice: ResidentTalkEvent["choices"][number];
         line: string;
         friendshipGained: number;
+        nextTalkAt: number;
       };
     }
   | {
@@ -93,6 +102,14 @@ type TownVisitResult =
     };
 
 type ActionPanel = "build" | "buildings" | "residents" | "expeditions" | "event" | "visit";
+type ShowcaseEffect = "expedition-start" | "expedition-claim" | "world-event" | null;
+type ResourceShortageDetails = {
+  missingResources?: Partial<Record<ResourceId, { required: number; current: number; missing: number }>>;
+};
+type PendingConversation = {
+  resident: Resident;
+  event: ResidentTalkEvent;
+};
 
 const rankLabels = {
   smallSettlement: "小さな集落",
@@ -115,6 +132,72 @@ const actionPanelLabels: Record<ActionPanel, string> = {
   visit: "訪問"
 };
 
+const asset = {
+  backgrounds: {
+    forest: "/assets/kenney/backgrounds/backgroundForest.png",
+    grass: "/assets/kenney/backgrounds/backgroundColorGrass.png",
+    fall: "/assets/kenney/backgrounds/backgroundColorFall.png",
+    desert: "/assets/kenney/backgrounds/backgroundDesert.png"
+  },
+  elements: {
+    cloudsA: "/assets/kenney/background-elements/cloudLayer1.png",
+    cloudsB: "/assets/kenney/background-elements/cloudLayer2.png",
+    ground: "/assets/kenney/background-elements/groundLayer1.png",
+    hills: "/assets/kenney/background-elements/hillsLarge.png",
+    mountains: "/assets/kenney/background-elements/mountains.png",
+    mountainA: "/assets/kenney/background-elements/mountainA.png",
+    mountainB: "/assets/kenney/background-elements/mountainB.png"
+  },
+  objects: {
+    tree: "/assets/kenney/objects/tree.png",
+    pine: "/assets/kenney/objects/treePine.png",
+    smallTree: "/assets/kenney/objects/treeSmall_green1.png",
+    smallTreeAlt: "/assets/kenney/objects/treeSmall_green2.png",
+    bush: "/assets/kenney/objects/bush1.png",
+    bushAlt: "/assets/kenney/objects/bushAlt1.png",
+    fence: "/assets/kenney/objects/fence.png",
+    house: "/assets/kenney/objects/houseSmall1.png",
+    sun: "/assets/kenney/objects/sun.png"
+  },
+  particles: {
+    dirt: "/assets/kenney/particles/dirt_01.png",
+    dirtAlt: "/assets/kenney/particles/dirt_03.png",
+    smoke: "/assets/kenney/particles/smoke_04.png",
+    smokeAlt: "/assets/kenney/particles/smoke_07.png",
+    spark: "/assets/kenney/particles/spark_04.png",
+    sparkAlt: "/assets/kenney/particles/spark_07.png",
+    star: "/assets/kenney/particles/star_03.png",
+    starAlt: "/assets/kenney/particles/star_06.png",
+    light: "/assets/kenney/particles/light_03.png",
+    circle: "/assets/kenney/particles/circle_02.png",
+    twirl: "/assets/kenney/particles/twirl_02.png"
+  },
+  isometric: {
+    sack: "/assets/kenney/isometric/sack_S.png",
+    crate: "/assets/kenney/isometric/sacksCrate_S.png",
+    ladder: "/assets/kenney/isometric/ladderStand_S.png",
+    brokenLadder: "/assets/kenney/isometric/ladderStandBroken_S.png",
+    planks: "/assets/kenney/isometric/planksHighOld_S.png",
+    dirt: "/assets/kenney/isometric/dirt_S.png"
+  }
+};
+
+const actionPanelIcons: Record<ActionPanel, string> = {
+  build: asset.isometric.planks,
+  buildings: asset.objects.house,
+  residents: asset.particles.circle,
+  expeditions: asset.isometric.ladder,
+  event: asset.particles.star,
+  visit: asset.objects.smallTree
+};
+
+const resourceIcons: Record<ResourceId, string> = {
+  wood: asset.isometric.planks,
+  food: asset.isometric.sack,
+  ore: asset.particles.dirt,
+  dreamCotton: asset.particles.starAlt
+};
+
 export function GameDashboard() {
   const router = useRouter();
   const [state, setState] = useState<GameState | null>(null);
@@ -134,6 +217,9 @@ export function GameDashboard() {
   const [visitedTown, setVisitedTown] = useState<PublicTownSnapshot | null>(null);
   const [activePanel, setActivePanel] = useState<ActionPanel>("build");
   const [diaryOpen, setDiaryOpen] = useState(false);
+  const [showcaseEffect, setShowcaseEffect] = useState<ShowcaseEffect>(null);
+  const [resourceShortage, setResourceShortage] = useState<ResourceShortageDetails | null>(null);
+  const [pendingConversation, setPendingConversation] = useState<PendingConversation | null>(null);
   const previousResourcesRef = useRef<Resources | null>(null);
   const [resourceGains, setResourceGains] = useState<Partial<Resources>>({});
 
@@ -175,6 +261,19 @@ export function GameDashboard() {
     }
     return Math.min(100, Math.round((state.worldEvent.event.currentAmount / state.worldEvent.event.goalAmount) * 100));
   }, [state]);
+
+  useEffect(() => {
+    if (!showcaseEffect) {
+      return;
+    }
+    const timerId = window.setTimeout(() => setShowcaseEffect(null), 1900);
+    return () => window.clearTimeout(timerId);
+  }, [showcaseEffect]);
+
+  function playShowcaseEffect(effect: Exclude<ShowcaseEffect, null>) {
+    setShowcaseEffect(null);
+    window.requestAnimationFrame(() => setShowcaseEffect(effect));
+  }
 
   useEffect(() => {
     if (!state) {
@@ -219,6 +318,7 @@ export function GameDashboard() {
 
   async function postBuildingAction(path: string, payload: Record<string, unknown>, successMessage: string) {
     setActionMessage("");
+    setResourceShortage(null);
     const response = await fetch(path, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -230,6 +330,9 @@ export function GameDashboard() {
     const result = (await response.json()) as GameStateResult;
     if (!result.ok) {
       setActionMessage(result.error.message);
+      if (result.error.code === "INSUFFICIENT_RESOURCES" && result.error.details?.missingResources) {
+        setResourceShortage(result.error.details);
+      }
       return;
     }
     setState(result.data);
@@ -264,12 +367,12 @@ export function GameDashboard() {
     );
   }
 
-  async function talkToResident(resident: Resident) {
+  async function talkToResident(resident: Resident, event: ResidentTalkEvent, choiceId: "a" | "b") {
     setDialogue("");
     const response = await fetch("/api/residents/talk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ residentId: resident.residentId })
+      body: JSON.stringify({ residentId: resident.residentId, eventId: event.eventId, choiceId })
     });
     const result = (await response.json()) as TalkResult;
     if (!result.ok) {
@@ -290,6 +393,7 @@ export function GameDashboard() {
     });
     setDialogue(`${result.data.resident.name}: ${result.data.line}`);
     setActionMessage(`${result.data.resident.name}となかよし度が${result.data.friendshipGained}上がりました。`);
+    setPendingConversation(null);
   }
 
   async function startExpedition() {
@@ -310,6 +414,7 @@ export function GameDashboard() {
     }
     setState(result.data);
     setActionMessage("探索隊を派遣しました。");
+    playShowcaseEffect("expedition-start");
   }
 
   async function claimExpedition(expedition: Expedition) {
@@ -331,6 +436,7 @@ export function GameDashboard() {
       setState(result.data.state);
     }
     setActionMessage(`探索報酬を受け取りました。${formatReward(result.data.rewards)}`);
+    playShowcaseEffect("expedition-claim");
   }
 
   async function contributeToWorldEvent() {
@@ -357,6 +463,7 @@ export function GameDashboard() {
       setState(result.data.state);
     }
     setActionMessage("世界イベントへ資源を納品しました。");
+    playShowcaseEffect("world-event");
   }
 
   async function visitTown() {
@@ -466,6 +573,10 @@ export function GameDashboard() {
         </div>
       ) : null}
 
+      {resourceShortage ? (
+        <ResourceShortageModal details={resourceShortage} onClose={() => setResourceShortage(null)} />
+      ) : null}
+
       <header className="game-hud">
         <div className="town-title">
           <h1>{state.profile.townName}</h1>
@@ -476,21 +587,25 @@ export function GameDashboard() {
         </div>
         <div className="hud-resources" aria-label="資源">
           <div className={resourceGains.wood ? "resource-chip gain" : "resource-chip"}>
+            <img alt="" src={resourceIcons.wood} />
             <span>木材</span>
             <strong>{state.resources.wood}</strong>
             {resourceGains.wood ? <em className="resource-delta">+{resourceGains.wood}</em> : null}
           </div>
           <div className={resourceGains.food ? "resource-chip gain" : "resource-chip"}>
+            <img alt="" src={resourceIcons.food} />
             <span>食料</span>
             <strong>{state.resources.food}</strong>
             {resourceGains.food ? <em className="resource-delta">+{resourceGains.food}</em> : null}
           </div>
           <div className={resourceGains.ore ? "resource-chip gain" : "resource-chip"}>
+            <img alt="" src={resourceIcons.ore} />
             <span>鉱石</span>
             <strong>{state.resources.ore}</strong>
             {resourceGains.ore ? <em className="resource-delta">+{resourceGains.ore}</em> : null}
           </div>
           <div className={resourceGains.dreamCotton ? "resource-chip gain" : "resource-chip"}>
+            <img alt="" src={resourceIcons.dreamCotton} />
             <span>夢わた</span>
             <strong>{state.resources.dreamCotton}</strong>
             {resourceGains.dreamCotton ? <em className="resource-delta">+{resourceGains.dreamCotton}</em> : null}
@@ -515,6 +630,7 @@ export function GameDashboard() {
               type="button"
               onClick={() => setActivePanel(panel)}
             >
+              <img alt="" src={actionPanelIcons[panel]} />
               <span>{actionPanelLabels[panel]}</span>
               {panel === "expeditions" && claimableExpeditions > 0 ? <strong>{claimableExpeditions}</strong> : null}
             </button>
@@ -669,8 +785,32 @@ export function GameDashboard() {
                       <p className="muted small">
                         {resident.personality} / なかよし度 {resident.friendship} / ({resident.x}, {resident.y})
                       </p>
-                      <button className="secondary" disabled={resident.status !== "idle"} type="button" onClick={() => talkToResident(resident)}>
-                        会話
+                      {pendingConversation?.resident.residentId === resident.residentId ? (
+                        <div className="conversation-box">
+                          <p>{pendingConversation.event.prompt}</p>
+                          <div className="choice-grid">
+                            {pendingConversation.event.choices.map((choice) => (
+                              <button
+                                className="secondary"
+                                key={choice.choiceId}
+                                type="button"
+                                onClick={() => talkToResident(resident, pendingConversation.event, choice.choiceId)}
+                              >
+                                {choice.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      <button
+                        className="secondary"
+                        disabled={resident.status !== "idle" || getTalkCooldownRemainingMs(resident, state.serverTime) > 0}
+                        type="button"
+                        onClick={() => setPendingConversation({ resident, event: getResidentTalkEvent(resident) })}
+                      >
+                        {getTalkCooldownRemainingMs(resident, state.serverTime) > 0
+                          ? `あと${Math.ceil(getTalkCooldownRemainingMs(resident, state.serverTime) / 60000)}分`
+                          : "会話"}
                       </button>
                     </article>
                   ))}
@@ -681,6 +821,7 @@ export function GameDashboard() {
 
           {activePanel === "expeditions" ? (
             <>
+              <ExpeditionShowcase areaId={expeditionAreaId} />
               <div className="compact-form">
                 <label>
                   探索先
@@ -709,7 +850,8 @@ export function GameDashboard() {
                   </select>
                 </label>
               </div>
-              <article className="detail-card">
+              <article className="detail-card asset-detail-card">
+                <img alt="" src={expeditionAreaId === "nearbyWoods" ? asset.objects.pine : asset.particles.light} />
                 <strong>{EXPEDITION_AREAS[expeditionAreaId].name}</strong>
                 <p className="small">
                   食料{EXPEDITION_AREAS[expeditionAreaId].foodCost} / {Math.floor(EXPEDITION_AREAS[expeditionAreaId].durationSeconds / 60)}分
@@ -720,7 +862,11 @@ export function GameDashboard() {
               </button>
               <div className="scroll-list">
                 {state.expeditions.map((expedition) => (
-                  <article className="detail-card" key={expedition.expeditionId}>
+                  <article className={`detail-card expedition-card ${expedition.status}`} key={expedition.expeditionId}>
+                    <div className="expedition-card-art" aria-hidden="true">
+                      <img src={expedition.areaId === "nearbyWoods" ? asset.objects.smallTreeAlt : asset.objects.pine} alt="" />
+                      <img src={expedition.status === "claimable" ? asset.particles.star : asset.particles.smoke} alt="" />
+                    </div>
                     <strong>{EXPEDITION_AREAS[expedition.areaId].name}</strong>
                     <p className="muted small">
                       {expedition.status === "running" ? "探索中" : expedition.status === "claimable" ? "報酬受取可" : "受取済み"} / 帰還{" "}
@@ -737,9 +883,16 @@ export function GameDashboard() {
 
           {activePanel === "event" ? (
             <>
-              <article className="detail-card">
-                <strong>{state.worldEvent.event.title}</strong>
-                <p className="muted">{state.worldEvent.event.description}</p>
+              <WorldEventShowcase progress={worldEventProgress} />
+              <article className="detail-card world-event-card">
+                <div>
+                  <strong>{state.worldEvent.event.title}</strong>
+                  <p className="muted">{state.worldEvent.event.description}</p>
+                </div>
+                <div className="event-prize" aria-hidden="true">
+                  <img src={asset.particles.light} alt="" />
+                  <img src={resourceIcons[state.worldEvent.event.resourceId]} alt="" />
+                </div>
                 <div className="progress-bar" aria-label={`世界イベント進捗 ${worldEventProgress}%`}>
                   <span style={{ width: `${worldEventProgress}%` }} />
                 </div>
@@ -759,8 +912,10 @@ export function GameDashboard() {
               </div>
               <div className="scroll-list">
                 {state.worldEvent.ranking.map((entry, index) => (
-                  <div className="resource" key={entry.playerId}>
-                    {index + 1}. {entry.playerId.slice(0, 16)} / {entry.score}
+                  <div className="resource ranking-row" key={entry.playerId}>
+                    <img alt="" src={index < 3 ? asset.particles.star : asset.particles.circle} />
+                    <span>{index + 1}. {entry.playerId.slice(0, 16)}</span>
+                    <strong>{entry.score}</strong>
                   </div>
                 ))}
               </div>
@@ -828,8 +983,126 @@ export function GameDashboard() {
           ) : null}
         </div>
       </section>
+      {showcaseEffect ? <ShowcaseBurst effect={showcaseEffect} /> : null}
     </main>
   );
+}
+
+function ExpeditionShowcase({ areaId }: { areaId: Expedition["areaId"] }) {
+  const isForest = areaId === "nearbyWoods";
+
+  return (
+    <section className={`asset-scene expedition-scene ${isForest ? "woods" : "dream"}`} aria-label={`${EXPEDITION_AREAS[areaId].name}の様子`}>
+      <img className="scene-bg" alt="" src={isForest ? asset.backgrounds.forest : asset.backgrounds.grass} />
+      <img className="scene-clouds layer-drift" alt="" src={asset.elements.cloudsA} />
+      <img className="scene-hills" alt="" src={isForest ? asset.elements.hills : asset.elements.mountains} />
+      <img className="scene-object tree-left" alt="" src={isForest ? asset.objects.tree : asset.objects.pine} />
+      <img className="scene-object tree-right" alt="" src={asset.objects.smallTreeAlt} />
+      <img className="scene-object crate" alt="" src={asset.isometric.crate} />
+      <img className="scene-object ladder" alt="" src={isForest ? asset.isometric.ladder : asset.isometric.brokenLadder} />
+      <img className="scene-particle star-a" alt="" src={asset.particles.star} />
+      <img className="scene-particle smoke-a" alt="" src={isForest ? asset.particles.circle : asset.particles.twirl} />
+      <div className="scene-copy">
+        <span>探索準備</span>
+        <strong>{EXPEDITION_AREAS[areaId].name}</strong>
+      </div>
+    </section>
+  );
+}
+
+function WorldEventShowcase({ progress }: { progress: number }) {
+  return (
+    <section className="asset-scene world-scene" aria-label={`世界イベント進捗 ${progress}%`}>
+      <img className="scene-bg" alt="" src={asset.backgrounds.fall} />
+      <img className="scene-clouds layer-drift" alt="" src={asset.elements.cloudsB} />
+      <img className="scene-hills" alt="" src={asset.elements.ground} />
+      <img className="scene-object sun" alt="" src={asset.objects.sun} />
+      <img className="scene-object house" alt="" src={asset.objects.house} />
+      <img className="scene-object tree-left" alt="" src={asset.objects.tree} />
+      <img className="scene-object tree-right" alt="" src={asset.objects.pine} />
+      <img className="scene-object bush-left" alt="" src={asset.objects.bush} />
+      <img className="scene-object fence" alt="" src={asset.objects.fence} />
+      <img className="scene-particle star-a" alt="" src={asset.particles.star} />
+      <img className="scene-particle star-b" alt="" src={asset.particles.starAlt} />
+      <img className="scene-particle spark-a" alt="" src={asset.particles.spark} />
+      <div className="event-meter" style={{ "--event-progress": `${progress}%` } as CSSProperties}>
+        <span>{progress}%</span>
+      </div>
+      <div className="scene-copy">
+        <span>共同納品</span>
+        <strong>収穫祭広場</strong>
+      </div>
+    </section>
+  );
+}
+
+function ShowcaseBurst({ effect }: { effect: Exclude<ShowcaseEffect, null> }) {
+  const isWorldEvent = effect === "world-event";
+  const isClaim = effect === "expedition-claim";
+  const particles = isWorldEvent
+    ? [asset.particles.star, asset.particles.spark, asset.particles.light, asset.particles.starAlt, asset.particles.circle]
+    : isClaim
+      ? [asset.particles.star, asset.particles.sparkAlt, asset.particles.light, asset.isometric.sack, asset.isometric.crate]
+      : [asset.particles.dirt, asset.particles.smoke, asset.particles.spark, asset.isometric.ladder, asset.particles.dirtAlt];
+
+  return (
+    <div className={`showcase-burst ${effect}`} aria-hidden="true">
+      {particles.map((particle, index) => (
+        <img key={`${particle}-${index}`} src={particle} alt="" style={{ "--burst-index": index } as CSSProperties} />
+      ))}
+    </div>
+  );
+}
+
+function ResourceShortageModal({ details, onClose }: { details: ResourceShortageDetails; onClose: () => void }) {
+  const missingEntries = Object.entries(details.missingResources ?? {}) as Array<
+    [ResourceId, { required: number; current: number; missing: number }]
+  >;
+
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="resource-shortage-title">
+      <section className="modal-panel stack resource-shortage-modal">
+        <div>
+          <h2 id="resource-shortage-title">素材が足りません</h2>
+          <p className="muted">不足している素材を集めてから、もう一度実行してください。</p>
+        </div>
+        <div className="shortage-list">
+          {missingEntries.map(([resourceId, detail]) => (
+            <div className="shortage-row" key={resourceId}>
+              <strong>{resourceLabel(resourceId)}</strong>
+              <span>必要 {detail.required}</span>
+              <span>所持 {detail.current}</span>
+              <em>不足 {detail.missing}</em>
+            </div>
+          ))}
+        </div>
+        <button type="button" onClick={onClose}>
+          閉じる
+        </button>
+      </section>
+    </div>
+  );
+}
+
+function getResidentTalkEvent(resident: Resident) {
+  const master = RESIDENT_MASTER.find((item) => item.templateId === resident.templateId);
+  const events = master?.talkEvents ?? [];
+  return events[(resident.friendship + new Date().getDate()) % events.length] ?? {
+    eventId: "default",
+    prompt: "今日は町の様子をゆっくり見ていました。",
+    choices: [
+      { choiceId: "a", label: "それはよかったね", response: "はい。穏やかな一日でした。", friendshipGained: 1 },
+      { choiceId: "b", label: "何か見つけた？", response: "小さな変化がたくさんありました。", friendshipGained: 1 }
+    ]
+  };
+}
+
+function getTalkCooldownRemainingMs(resident: Resident, serverTime: number) {
+  const cooldownMs = 5 * 60 * 1000;
+  if (!resident.lastTalkedAt) {
+    return 0;
+  }
+  return Math.max(0, resident.lastTalkedAt + cooldownMs - serverTime);
 }
 
 function formatCost(cost: Partial<Record<string, number>>) {
